@@ -46,19 +46,9 @@ class Entity(models.Model):
     name = models.CharField(max_length=256, null=True, blank=True)
     description = models.TextField(null=True, blank=True)
 
-    sources = models.ManyToManyField(
-        'SourceSeries', blank=True, related_name='+readers'
-    )
-    time_series_ro = models.ManyToManyField(
-        'TimeSeries', blank=True, related_name='+readers'
-    )
-    processes = models.ManyToManyField(
-        'Process', blank=True, related_name='+readers'
-    )
-
     class Meta:
         verbose_name = "DAMATS User or Group"
-        verbose_name_plural = "DAMATS Users and Groups"
+        verbose_name_plural = "0. DAMATS Users and Groups"
 
     def __unicode__(self):
         name = self.identifier
@@ -69,25 +59,19 @@ class Entity(models.Model):
 
 class Group(Entity):
     """ Group model."""
-    users = models.ManyToManyField(
-        'User', blank=True, related_name='+users'
-    )
-
     class Meta:
         verbose_name = "DAMATS Group"
-        verbose_name_plural = "DAMATS Groups"
+        verbose_name_plural = "2. DAMATS Groups"
 
 
 class User(Entity):
     """ User model."""
-    locked = models.BooleanField(default=False)
-    groups = models.ManyToManyField(
-        Group, through=Group.users.through, blank=True, related_name='+'
-    )
+    active = models.BooleanField(default=False)
+    groups = models.ManyToManyField(Group, blank=True, related_name='users')
 
     class Meta:
         verbose_name = "DAMATS User"
-        verbose_name_plural = "DAMATS Users"
+        verbose_name_plural = "1. DAMATS Users"
 
 #-------------------------------------------------------------------------------
 # Image Time Series
@@ -104,14 +88,11 @@ class SourceSeries(models.Model):
     description = models.TextField(null=True, blank=True)
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
-    readers = models.ManyToManyField(
-        Entity, through=Entity.sources.through, blank=True,
-        related_name='+sources'
-    )
+    readers = models.ManyToManyField(Entity, blank=True, related_name='sources')
 
     class Meta:
         verbose_name = "DAMATS Source Image Series"
-        verbose_name_plural = "DAMATS Source Image Series"
+        verbose_name_plural = "3. DAMATS Source Image Series"
 
     def __unicode__(self):
         name = self.eoobj.identifier
@@ -136,8 +117,7 @@ class TimeSeries(models.Model):
     locked = models.BooleanField(default=False)
 
     readers = models.ManyToManyField(
-        Entity, through=Entity.time_series_ro.through, blank=True,
-        related_name='+time_series_ro',
+        Entity, blank=True, related_name='time_series_ro',
     )
 
     created = models.DateTimeField(auto_now_add=True)
@@ -145,7 +125,7 @@ class TimeSeries(models.Model):
 
     class Meta:
         verbose_name = "DAMATS Image Time Series"
-        verbose_name_plural = "DAMATS Image Time Series"
+        verbose_name_plural = "4. DAMATS Image Time Series"
 
     def __unicode__(self):
         name = self.eoobj.identifier
@@ -165,13 +145,12 @@ class Process(models.Model):
     name = models.CharField(max_length=256, null=True, blank=True)
     description = models.TextField(null=True, blank=True)
     readers = models.ManyToManyField(
-        Entity, through=Entity.processes.through, blank=True,
-        related_name='+processes'
+        Entity, blank=True, related_name='processes'
     )
 
     class Meta:
         verbose_name = "DAMATS Process"
-        verbose_name_plural = "DAMATS Processes"
+        verbose_name_plural = "6. DAMATS Processes"
 
     def __unicode__(self):
         name = self.identifier
@@ -216,7 +195,7 @@ class Job(models.Model):
 
     class Meta:
         verbose_name = "DAMATS Process Job"
-        verbose_name_plural = "DAMATS Process Jobs"
+        verbose_name_plural = "7. DAMATS Process Jobs"
 
     def __unicode__(self):
         name = self.identifier
@@ -240,7 +219,7 @@ class Result(models.Model):
 
     class Meta:
         verbose_name = "DAMATS Job Result"
-        verbose_name_plural = "DAMATS Job Results"
+        verbose_name_plural = "8. DAMATS Job Results"
 
     def __unicode__(self):
         name = self.eoobj.identifier

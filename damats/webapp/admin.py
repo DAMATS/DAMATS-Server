@@ -33,52 +33,52 @@
 from django.core.exceptions import ValidationError
 from django import forms
 from django.contrib import admin
-from damats.webapp import models
+from damats.webapp.models import (
+    User, Group, Process, SourceSeries, TimeSeries, Job, Result,
+)
 
 #-------------------------------------------------------------------------------
-# Users ans Groups
+# utilities
+def update_related(target, items):
+    """ Update related from the list of items. """
+    target.clear()
+    for item in items:
+        target.add(item)
 
-#class EntityAdmin(admin.ModelAdmin):
-#    model = models.Entity
-#    fields = (
-#        'identifier',
-#        'name',
-#        'description',
-#    )
-#    search_fields = ['identifier', 'name']
-#
-#    # Entities cannot be added or deleted directly.
-#    def has_add_permission(self, request, obj=None):
-#        return False
-#
-#    def has_delete_permission(self, request, obj=None):
-#        return False
-#
-#admin.site.register(models.Entity, EntityAdmin)
+#-------------------------------------------------------------------------------
+# Users ans Groups (a.k.a. Entities)
 
-class UserAdminForm(forms.ModelForm):
-    def clean_identifier(self):
-        if str(self.cleaned_data["identifier"])[:1] == '@':
-            raise ValidationError(
-                "A user identifier is not allowed to start with the '@' "
-                "character!"
-            )
-        return self.cleaned_data["identifier"]
-
-class UserAdmin(admin.ModelAdmin):
-    form = UserAdminForm
-    model = models.User
-    fields = (
-        'locked',
-        'identifier',
-        'name',
-        'description',
-        'groups',
-        'sources',
-        'processes',
+class BaseEntityForm(forms.ModelForm):
+    """ Base form class used by all entities. """
+    sources = forms.ModelMultipleChoiceField(
+        label='Sources',
+        widget=admin.widgets.FilteredSelectMultiple('SourceSeries', False),
+        queryset=SourceSeries.objects.all(),
+        required=False,
     )
-    filter_horizontal = ['groups', 'sources', 'processes']
-    search_fields = ['identifier', 'name']
+    processes = forms.ModelMultipleChoiceField(
+        label='Processes',
+        widget=admin.widgets.FilteredSelectMultiple('Processes', False),
+        queryset=Process.objects.all(),
+        required=False,
+    )
+
+
+class BaseEntityAdmin(admin.ModelAdmin):
+    """ Base admin class used by all entities. """
+    def save_model(self, request, obj, form, change):
+        super(BaseEntityAdmin, self).save_model(request, obj, form, change)
+        update_related(obj.sources, form.cleaned_data['sources'])
+        update_related(obj.processes, form.cleaned_data['processes'])
+
+    def get_form(self, request, obj=None, **kwargs):
+        self.form.base_fields['sources'].initial = (
+            obj.sources.values_list('pk', flat=True) if obj else []
+        )
+        self.form.base_fields['processes'].initial = (
+            obj.processes.values_list('pk', flat=True) if obj else []
+        )
+        return super(BaseEntityAdmin, self).get_form(request, obj, **kwargs)
 
     def get_readonly_fields(self, request, obj=None):
         read_only_fields = []
@@ -89,21 +89,53 @@ class UserAdmin(admin.ModelAdmin):
         else: # creating new object
             return read_only_fields
 
-admin.site.register(models.User, UserAdmin)
 
-
-class GroupAdminForm(forms.ModelForm):
+class UserAdminForm(BaseEntityForm):
     def clean_identifier(self):
-        if str(self.cleaned_data["identifier"])[:1] != '@':
-            raise ValidationError(
-                "A group identifier is required to start with the '@' "
-                "character!"
-            )
-        return self.cleaned_data["identifier"]
+        # user id must not start with @
+        id_ = self.cleaned_data["identifier"]
+        if id_[:1] == '@':
+            id_ = id_[1:]
+        return id_
 
-class GroupAdmin(admin.ModelAdmin):
+
+class UserAdmin(BaseEntityAdmin):
+    form = UserAdminForm
+    model = User
+    fields = (
+        'active',
+        'identifier',
+        'name',
+        'description',
+        'groups',
+        'sources',
+        'processes',
+    )
+    filter_horizontal = ['groups']
+    search_fields = ['identifier', 'name']
+
+admin.site.register(User, UserAdmin)
+
+
+class GroupAdminForm(BaseEntityForm):
+    users = forms.ModelMultipleChoiceField(
+        label='Users',
+        widget=admin.widgets.FilteredSelectMultiple('Users', False),
+        queryset=User.objects.all(),
+        required=False,
+    )
+
+    def clean_identifier(self):
+        # group id must always start with @
+        id_ = self.cleaned_data["identifier"]
+        if id_[:1] != '@':
+            id_ = '@' + id_
+        return id_
+
+
+class GroupAdmin(BaseEntityAdmin):
     form = GroupAdminForm
-    model = models.Group
+    model = Group
     fields = (
         'identifier',
         'name',
@@ -112,25 +144,25 @@ class GroupAdmin(admin.ModelAdmin):
         'sources',
         'processes',
     )
-    filter_horizontal = ['users', 'sources', 'processes']
     search_fields = ['identifier', 'name']
 
-    def get_readonly_fields(self, request, obj=None):
-        read_only_fields = []
-        constant_fields = ['identifier']
-        # constant fields are changed only when creating new object
-        if obj: # modifying an existing object
-            return read_only_fields + constant_fields
-        else: # creating new object
-            return read_only_fields
+    def save_model(self, request, obj, form, change):
+        super(GroupAdmin, self).save_model(request, obj, form, change)
+        update_related(obj.users, form.cleaned_data['users'])
 
-admin.site.register(models.Group, GroupAdmin)
+    def get_form(self, request, obj=None, **kwargs):
+        self.form.base_fields['users'].initial = (
+            obj.users.values_list('pk', flat=True) if obj else []
+        )
+        return super(GroupAdmin, self).get_form(request, obj, **kwargs)
+
+admin.site.register(Group, GroupAdmin)
 
 #-------------------------------------------------------------------------------
 # Image Time Series
 
 class SourceSeriesAdmin(admin.ModelAdmin):
-    model = models.SourceSeries
+    model = SourceSeries
     fields = (
         'name',
         'description',
@@ -149,11 +181,11 @@ class SourceSeriesAdmin(admin.ModelAdmin):
         else: # creating new object
             return read_only_fields
 
-admin.site.register(models.SourceSeries, SourceSeriesAdmin)
+admin.site.register(SourceSeries, SourceSeriesAdmin)
 
 
 class TimeSeriesAdmin(admin.ModelAdmin):
-    model = models.TimeSeries
+    model = TimeSeries
     fields = (
         'locked',
         'name',
@@ -176,13 +208,13 @@ class TimeSeriesAdmin(admin.ModelAdmin):
         else: # creating new object
             return read_only_fields
 
-admin.site.register(models.TimeSeries, TimeSeriesAdmin)
+admin.site.register(TimeSeries, TimeSeriesAdmin)
 
 #-------------------------------------------------------------------------------
 # Processes
 
 class ProcessAdmin(admin.ModelAdmin):
-    model = models.Process
+    model = Process
     fields = (
         'identifier',
         'name',
@@ -201,10 +233,11 @@ class ProcessAdmin(admin.ModelAdmin):
         else: # creating new object
             return read_only_fields
 
-admin.site.register(models.Process, ProcessAdmin)
+admin.site.register(Process, ProcessAdmin)
+
 
 class JobAdmin(admin.ModelAdmin):
-    model = models.Job
+    model = Job
     fields = (
         'identifier',
         'name',
@@ -212,12 +245,12 @@ class JobAdmin(admin.ModelAdmin):
         'owner',
         'status',
         'created',
-        'updated', 
+        'updated',
         'readers',
         'process',
         'inputs',
         'outputs',
-#        'results',
+        #'results',
     )
 
     filter_horizontal = ['readers']
@@ -232,11 +265,11 @@ class JobAdmin(admin.ModelAdmin):
         else: # creating new object
             return read_only_fields
 
-admin.site.register(models.Job, JobAdmin)
+admin.site.register(Job, JobAdmin)
 
 
 class ResultAdmin(admin.ModelAdmin):
-    model = models.Result
+    model = Result
     fields = (
         'name',
         'description',
@@ -253,4 +286,4 @@ class ResultAdmin(admin.ModelAdmin):
         else: # creating new object
             return read_only_fields
 
-admin.site.register(models.Result, ResultAdmin)
+admin.site.register(Result, ResultAdmin)
