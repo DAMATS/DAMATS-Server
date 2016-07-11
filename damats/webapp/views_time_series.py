@@ -105,7 +105,7 @@ COVERAGE_PARSER_PUT = Object((
 ))
 
 #-------------------------------------------------------------------------------
-# quaries
+# queries
 
 def get_sources(user):
     """ Get a query set of all SourceSeries objects accessible by the user. """
@@ -170,7 +170,7 @@ def get_coverages(eoobj):
 # model instance serialization
 
 def source_serialize(obj, extras=None):
-    """ Serialize SourceSeries django model instance to a JSON serializable
+    """ Serialize SourceSeries Django model instance to a JSON serializable
         dictionary.
     """
     response = extras if extras else {}
@@ -182,7 +182,7 @@ def source_serialize(obj, extras=None):
     return response
 
 def time_series_serialize(obj, user, extras=None):
-    """ Serialize TimeSeries django model instance to a JSON serializable
+    """ Serialize TimeSeries Django model instance to a JSON serializable
         dictionary.
     """
     response = extras if extras else {}
@@ -215,7 +215,7 @@ def coverage_serialize_extra(obj, extra):
 # object creation
 
 def create_collection(identifier):
-    """ Create new DatasetSeries with the given identier. """
+    """ Create new DatasetSeries with the given identifier. """
     obj = DatasetSeries(identifier=identifier)
     obj.save()
     return obj
@@ -224,9 +224,9 @@ def create_collection(identifier):
 def create_time_series(input_, user):
     """ Handle create requests and create a new TimeSeries object. """
     #TODO: allow:
-    # - arbitrary geomety input
+    # - arbitrary geometry input
     # - point with a buffer (up to 100km)
-    # - bouding box
+    # - bounding box
 
     # First check the source.
     try:
@@ -284,7 +284,7 @@ def create_time_series(input_, user):
 @method_allow(['GET'])
 @rest_json(JSON_OPTS)
 def sources_view(method, input_, user, **kwargs):
-    """ List avaiable source time series.
+    """ List available source time series.
     """
     return 200, [source_serialize(obj) for obj in get_sources(user)]
 
@@ -325,7 +325,7 @@ def sources_coverage_view(method, input_, user, identifier, coverage, **kwargs):
 @method_allow(['GET', 'POST'])
 @rest_json(JSON_OPTS, SITS_PARSER)
 def time_series_view(method, input_, user, **kwargs):
-    """ List avaiable time-series.
+    """ List available time-series.
     """
     if method == "POST": # new object to be created
         return create_time_series(input_, user)
@@ -371,7 +371,7 @@ def time_series_item_view(method, input_, user, identifier, **kwargs):
 
 
     if 'all' not in kwargs['request'].GET:
-        # list only coverages inluded in the collection
+        # list only coverages included in the collection
         return 200, [
             coverage_serialize(cov) for cov
             in get_coverages(obj.eoobj).order_by('begin_time', 'end_time')
@@ -383,7 +383,7 @@ def time_series_item_view(method, input_, user, identifier, **kwargs):
         for cov in get_coverages(obj.eoobj):
             included.add(cov.identifier)
 
-        # list avaiable
+        # list available
         selection = SELECTION_PARSER.parse(json.loads(obj.selection or '{}'))
         toi = selection.get('toi', None)
         aoi = selection.get('aoi', None)
@@ -436,7 +436,7 @@ def time_series_coverage_view(method, input_, user, identifier, coverage,
         return 204, None
 
     if method == "PUT":
-        # PUT is used by the SITS editor to controll content of the time-series
+        # PUT is used by the SITS editor to control content of the time-series
         exists = get_coverages(obj.eoobj).filter(identifier=coverage).exists()
         if input_['in'] and not exists:
             obj.eoobj.insert(cov)
