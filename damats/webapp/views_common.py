@@ -42,7 +42,7 @@ JSON_OPTS = {'sort_keys': False, 'indent': 4, 'separators': (',', ': ')}
 # authorisation enforcement decorator
 
 def authorisation(view):
-    """ Check if request.META['REMOTE_USER'] is an authorided DAMATS user
+    """ Check if request.META['REMOTE_USER'] is an authorised DAMATS user
         and the User object in the view parameters.
     """
     def _wrapper_(request, *args, **kwargs):
@@ -52,7 +52,7 @@ def authorisation(view):
             user = (
                 User.objects
                 .prefetch_related('groups')
-                .get(identifier=uid, locked=False)
+                .get(identifier=uid, active=True)
             )
         except ObjectDoesNotExist:
             raise HttpError(401, "Unauthorised")

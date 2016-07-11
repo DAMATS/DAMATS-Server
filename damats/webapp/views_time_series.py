@@ -79,7 +79,7 @@ SELECTION_PARSER = Object((
 
 SITS_PARSER = Object((
     ('source', String, True),
-    ('locked', Bool, False, False),
+    ('editable', Bool, True, True),
     ('name', (String, Null), False, None),
     ('description', (String, Null), False, None),
     ('selection', Object((
@@ -191,7 +191,7 @@ def time_series_serialize(obj, user, extras=None):
         "source": obj.source.eoobj.identifier,
         "name": obj.name or None,
         "description": obj.description or None,
-        "locked": obj.locked or obj.owner != user,
+        "editable": obj.editable or obj.owner != user,
         "owned": obj.owner == user,
         "selection": json.loads(obj.selection or '{}'),
     })
@@ -239,8 +239,8 @@ def create_time_series(input_, user):
     # Create a new object.
     obj = TimeSeries()
     obj.owner = user
-    locked = input_.get("locked", False)
-    obj.locked = locked if locked is not None else False
+    editable = input_.get("editable", True)
+    obj.editable = True if editable is None else editable
     obj.name = input_.get('name', None) or None
     obj.description = input_.get('description', None) or None
     obj.source = source

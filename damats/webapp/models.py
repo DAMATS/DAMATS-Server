@@ -66,7 +66,7 @@ class Group(Entity):
 
 class User(Entity):
     """ User model."""
-    active = models.BooleanField(default=False)
+    active = models.BooleanField(default=True)
     groups = models.ManyToManyField(Group, blank=True, related_name='users')
 
     class Meta:
@@ -114,7 +114,7 @@ class TimeSeries(models.Model):
     source = models.ForeignKey(SourceSeries, related_name='time_series')
     selection = models.TextField(null=True, blank=True)
     owner = models.ForeignKey(User, related_name='time_series')
-    locked = models.BooleanField(default=False)
+    editable = models.BooleanField(default=True)
 
     readers = models.ManyToManyField(
         Entity, blank=True, related_name='time_series_ro',
