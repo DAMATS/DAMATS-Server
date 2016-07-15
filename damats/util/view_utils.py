@@ -31,6 +31,7 @@ import json
 import sys
 import ipaddr
 import traceback
+from functools import wraps
 from django.http import HttpResponse
 from django.conf import settings
 
@@ -47,6 +48,7 @@ class HttpError(Exception):
 
 def error_handler(view):
     """ error handling decorator """
+    @wraps(view)
     def _wrapper_(request, *args, **kwargs):
         try:
             return view(request, *args, **kwargs)
@@ -64,8 +66,6 @@ def error_handler(view):
                 message, content_type="text/plain", status=500
             )
         return response
-    _wrapper_.__name__ = view.__name__
-    _wrapper_.__doc__ = view.__doc__
     return _wrapper_
 
 
@@ -76,6 +76,7 @@ def method_allow(allowed_methods, handle_options=True):
     """
     allowed_methods = tuple(allowed_methods)
     def _wrap_(view):
+        @wraps(view)
         def _wrapper_(request, *args, **kwargs):
             if handle_options and request.method == "OPTIONS":
                 response = HttpResponse("")
@@ -89,8 +90,6 @@ def method_allow(allowed_methods, handle_options=True):
             else:
                 response = view(request, *args, **kwargs)
             return response
-        _wrapper_.__name__ = view.__name__
-        _wrapper_.__doc__ = view.__doc__
         return _wrapper_
     return _wrap_
 
@@ -106,6 +105,7 @@ def method_allow_conditional(allowed_methods_true, allowed_methods_false,
     allowed_methods_true = tuple(allowed_methods_true)
     allowed_methods_false = tuple(allowed_methods_false)
     def _wrap_(view):
+        @wraps(view)
         def _wrapper_(request, *args, **kwargs):
             if condition(request, *args, **kwargs):
                 allowed_methods = allowed_methods_true
@@ -123,8 +123,6 @@ def method_allow_conditional(allowed_methods_true, allowed_methods_false,
             else:
                 response = view(request, *args, **kwargs)
             return response
-        _wrapper_.__name__ = view.__name__
-        _wrapper_.__doc__ = view.__doc__
         return _wrapper_
     return _wrap_
 
@@ -132,6 +130,7 @@ def method_allow_conditional(allowed_methods_true, allowed_methods_false,
 def ip_deny(ip_list):
     """ IP black-list restricted access """
     def _wrap_(view):
+        @wraps(view)
         def _wrapper_(request, *args, **kwargs):
             # get request source address and compare it with the forbiden ones
             ip_src = ipaddr.IPAddress(request.META['REMOTE_ADDR'])
@@ -139,8 +138,6 @@ def ip_deny(ip_list):
                 if ip_src in ipaddr.IPNetwork(ip_):
                     raise HttpError(403, "Forbiden!")
             return view(request, *args, **kwargs)
-        _wrapper_.__name__ = view.__name__
-        _wrapper_.__doc__ = view.__doc__
         return _wrapper_
     return _wrap_
 
@@ -148,6 +145,7 @@ def ip_deny(ip_list):
 def ip_allow(ip_list):
     """ IP white-list restricted access """
     def _wrap_(view):
+        @wraps(view)
         def _wrapper_(request, *args, **kwargs):
             # get request source address and compare it with the allowed ones
             ip_src = ipaddr.IPAddress(request.META['REMOTE_ADDR'])
@@ -157,8 +155,6 @@ def ip_allow(ip_list):
             else:
                 raise HttpError(403, "Forbiden!")
             return view(request, *args, **kwargs)
-        _wrapper_.__name__ = view.__name__
-        _wrapper_.__doc__ = view.__doc__
         return _wrapper_
     return _wrap_
 
@@ -181,6 +177,7 @@ def rest_json(json_options=None, validation_parser=None, defauts=None):
     json_options = json_options or {}
     defaults = defauts or {}
     def _wrap_(view):
+        @wraps(view)
         def _wrapper_(request, *args, **kwargs):
             try:
                 if request.body:
@@ -207,7 +204,5 @@ def rest_json(json_options=None, validation_parser=None, defauts=None):
                     status=status, content_type="application/json"
                 )
             return response
-        _wrapper_.__name__ = view.__name__
-        _wrapper_.__doc__ = view.__doc__
         return _wrapper_
     return _wrap_

@@ -28,15 +28,16 @@
 #-------------------------------------------------------------------------------
 # pylint: disable=missing-docstring,unused-argument
 
+from functools import wraps
 from django.core.exceptions import ObjectDoesNotExist
 
 from damats.webapp.models import User
 from damats.util.view_utils import HttpError
 from damats.util.config import WEBAPP_CONFIG
 
-# JSON formating options
+# JSON formatting options
+JSON_OPTS = {'sort_keys': False, 'indent': 2, 'separators': (',', ': ')}
 #JSON_OPTS={}
-JSON_OPTS = {'sort_keys': False, 'indent': 4, 'separators': (',', ': ')}
 
 #-------------------------------------------------------------------------------
 # authorisation enforcement decorator
@@ -45,6 +46,7 @@ def authorisation(view):
     """ Check if request.META['REMOTE_USER'] is an authorised DAMATS user
         and the User object in the view parameters.
     """
+    @wraps(view)
     def _wrapper_(request, *args, **kwargs):
         # NOTE: Default user is is read from the configuration.
         uid = request.META.get('REMOTE_USER', WEBAPP_CONFIG.default_user)
@@ -57,6 +59,4 @@ def authorisation(view):
         except ObjectDoesNotExist:
             raise HttpError(401, "Unauthorised")
         return view(request, user, *args, **kwargs)
-    _wrapper_.__name__ = view.__name__
-    _wrapper_.__doc__ = view.__doc__
     return _wrapper_

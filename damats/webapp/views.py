@@ -28,21 +28,15 @@
 #-------------------------------------------------------------------------------
 # pylint: disable=missing-docstring,unused-argument
 
-#from django.conf import settings
-#from django.http import HttpResponse
-#from django.db import transaction
+from collections import OrderedDict
 from django.db.models import Q
-#from django.core.exceptions import ObjectDoesNotExist
-
-from damats.webapp.models import (
-   Process, Job, #Result,
-)
 from damats.util.view_utils import (
-    HttpError, error_handler, method_allow, method_allow_conditional,
-    rest_json,
+    error_handler, method_allow, rest_json,
+    # HttpError, error_handler, method_allow, method_allow_conditional,
 )
-from damats.util.config import WEBAPP_CONFIG
-
+from damats.webapp.models import (
+    Process, Job, #Result,
+)
 from damats.webapp.views_common import authorisation, JSON_OPTS
 from damats.webapp.views_users import (
     user_view, groups_view, users_all_view, groups_all_view,
@@ -50,9 +44,12 @@ from damats.webapp.views_users import (
 from damats.webapp.views_time_series import (
     sources_view, sources_item_view, time_series_view, time_series_item_view,
     sources_coverage_view, time_series_coverage_view,
+    get_sources, get_time_series,
 )
 
 JOB_STATUS_DICT = dict(Job.STATUS_CHOICES)
+INTERFACE_NAME = "DAMATS"
+INTERFACE_VERSION = "0.0.2"
 
 #-------------------------------------------------------------------------------
 
@@ -121,10 +118,10 @@ def root_view(method, input_, user, **kwargs):
             ("is_owner", obj.owner.identifier == user_id),
         )) for obj in get_jobs(user)
     ]
-    return OrderedDict((
-        ("identifier", user_id),
-        ("name", user.name),
-        ("description", user.description),
+    return 200, OrderedDict((
+        ("interface", INTERFACE_NAME),
+        ("version", INTERFACE_VERSION),
+        ("user", user_id),
         ("groups", groups),
         ("sources", sources),
         ("processes", processes),
