@@ -191,6 +191,9 @@ def rest_json(json_options=None, validation_parser=None, defauts=None):
                 else:
                     obj_input = None
             except (KeyError, TypeError, ValueError):
+                if settings.DEBUG:
+                    trace = traceback.format_exc()
+                    sys.stderr.write(trace)
                 raise HttpError(400, "Bad Request")
             kwargs['request'] = request
             status, obj_output = view(

@@ -79,7 +79,7 @@ SELECTION_PARSER = Object((
 
 SITS_PARSER = Object((
     ('source', String, True),
-    ('editable', Bool, True, True),
+    ('editable', Bool, False, True),
     ('name', (String, Null), False, None),
     ('description', (String, Null), False, None),
     ('selection', Object((
