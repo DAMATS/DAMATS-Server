@@ -211,6 +211,7 @@ def coverage_serialize_extra(obj, extra):
     tmp = coverage_serialize(obj)
     tmp.update(extra)
     return tmp
+
 #-------------------------------------------------------------------------------
 # object creation
 
@@ -357,6 +358,8 @@ def time_series_item_view(method, input_, user, identifier, **kwargs):
         return 204, None
 
     elif method == "POST":
+        if not obj.editable:
+            return 405, "Method not allowed\nRead-only time-series!"
         # link an existing coverage from source to the time-series
         if get_coverages(obj.eoobj).filter(identifier=input_['id']).exists():
             # the record already exists
@@ -431,11 +434,15 @@ def time_series_coverage_view(method, input_, user, identifier, coverage,
         raise HttpError(404, "Not found")
 
     if method == "DELETE":
+        if not obj.editable:
+            return 405, "Method not allowed\nRead-only time-series!"
         # unlink coverage from a collection
         obj.eoobj.remove(cov)
         return 204, None
 
     if method == "PUT":
+        if not obj.editable:
+            return 405, "Method not allowed\nRead-only time-series!"
         # PUT is used by the SITS editor to control content of the time-series
         exists = get_coverages(obj.eoobj).filter(identifier=coverage).exists()
         if input_['in'] and not exists:
