@@ -201,7 +201,7 @@ class TimeSeriesAdmin(admin.ModelAdmin):
 
     def get_readonly_fields(self, request, obj=None):
         read_only_fields = []
-        constant_fields = ['eoobj', 'owner', 'source']
+        constant_fields = ['eoobj', 'source']
         # constant fields are changed only when creating new object
         if obj: # modifying an existing object
             return read_only_fields + constant_fields
