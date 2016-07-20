@@ -36,8 +36,8 @@ from damats.util.view_utils import HttpError
 from damats.util.config import WEBAPP_CONFIG
 
 # JSON formatting options
-JSON_OPTS = {'sort_keys': False, 'indent': 2, 'separators': (',', ': ')}
-#JSON_OPTS={}
+#JSON_OPTS = {'sort_keys': False, 'indent': 2, 'separators': (',', ': ')}
+JSON_OPTS={}
 
 #-------------------------------------------------------------------------------
 # authorisation enforcement decorator

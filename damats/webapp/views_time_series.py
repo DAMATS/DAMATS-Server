@@ -37,7 +37,7 @@ from datetime import datetime
 from django.db import transaction
 from django.db.models import Q
 from django.core.exceptions import ObjectDoesNotExist
-from django.contrib.gis.geos import Polygon
+from django.contrib.gis.geos import Polygon, MultiPolygon, GeometryCollection
 
 from eoxserver.core.util.timetools import isoformat
 from eoxserver.resources.coverages.models import DatasetSeries, Coverage
@@ -167,6 +167,63 @@ def get_coverages(eoobj):
     return Coverage.objects.filter(collections__id__in=_get_children_ids(eoobj))
 
 #-------------------------------------------------------------------------------
+# geometry extraction
+
+def assure_multipolygon(geom):
+    """ Assure the MultiPolygon geometry. """
+    if isinstance(geom, MultiPolygon):
+        return geom
+    elif isinstance(geom, Polygon):
+        polygons = [geom]
+    elif isinstance(geom, GeometryCollection):
+        polygons = []
+        for item in geom:
+            if isinstance(item, Polygon):
+                polygons.append(item)
+            elif isinstance(item, MultiPolygon):
+                polygons.extend(list(MultiPolygon))
+    else:
+        polygons = []
+    return MultiPolygon(polygons)
+
+
+def selection_area(obj):
+    """ Get selection area. """
+    selection = SELECTION_PARSER.parse(json.loads(obj.selection or '{}'))
+    aoi = selection.get('aoi', None)
+    if aoi:
+        return MultiPolygon([Polygon.from_bbox((
+            aoi['left'] - TOLERANCE,
+            aoi['bottom'] - TOLERANCE,
+            aoi['right'] + TOLERANCE,
+            aoi['top'] + TOLERANCE,
+        ))])
+    else:
+        return MultiPolygon([]) # empty geometry
+
+def common_area(obj):
+    """ Get common area (intersection) of the items of the given time-series."""
+    footprints = iter(
+        get_coverages(obj.eoobj).values_list('footprint', flat=True)
+    )
+    try:
+        intersection = footprints.next()
+    except StopIteration:
+        return MultiPolygon([]) # empty geometry
+    for geom in footprints:
+        intersection = intersection.intersection(geom)
+        if intersection.empty or intersection.dims < 2:
+            return MultiPolygon([]) # empty geometry
+    return assure_multipolygon(intersection)
+
+def extract_coordinates(geom):
+    """ Extract polygon coordinates. Inner rings are ignored. """
+    if isinstance(geom, MultiPolygon):
+        return [list(item[0]) for item in geom]
+    elif isinstance(geom, Polygon):
+        return list(geom[0])
+
+#-------------------------------------------------------------------------------
 # model instance serialization
 
 def source_serialize(obj, extras=None):
@@ -185,6 +242,10 @@ def time_series_serialize(obj, user, extras=None):
     """ Serialize TimeSeries Django model instance to a JSON serializable
         dictionary.
     """
+    selection = selection_area(obj)
+    selected = selection
+    common = assure_multipolygon(common_area(obj))
+
     response = extras if extras else {}
     response.update({
         "identifier": obj.eoobj.identifier,
@@ -194,6 +255,10 @@ def time_series_serialize(obj, user, extras=None):
         "editable": obj.editable and obj.owner == user,
         "owned": obj.owner == user,
         "selection": json.loads(obj.selection or '{}'),
+        "common_intersection_area": extract_coordinates(common),
+        "selected_area": extract_coordinates(selected),
+        "selection_area": extract_coordinates(selection),
+        "selection_extent": selection.extent,
     })
     return response
 
@@ -375,47 +440,51 @@ def time_series_item_view(method, input_, user, identifier, **kwargs):
         return 201, coverage_serialize(cov)
 
 
-    if 'all' not in kwargs['request'].GET:
-        # list only coverages included in the collection
-        return 200, [
-            coverage_serialize(cov) for cov
-            in get_coverages(obj.eoobj).order_by('begin_time', 'end_time')
-        ]
+    params = kwargs['request'].GET
+    if params.get('list', 'false').lower() != 'true':
+        return 200, time_series_serialize(obj, user)
     else:
-        # list all available coverages matching the selection
+        if params.get('all', 'false').lower() != 'true':
+            # list only coverages included in the collection
+            return 200, [
+                coverage_serialize(cov) for cov
+                in get_coverages(obj.eoobj).order_by('begin_time', 'end_time')
+            ]
+        else:
+            # list all available coverages matching the selection
 
-        included = set()
-        for cov in get_coverages(obj.eoobj):
-            included.add(cov.identifier)
+            included = set()
+            for cov in get_coverages(obj.eoobj):
+                included.add(cov.identifier)
 
-        # list available
-        selection = SELECTION_PARSER.parse(json.loads(obj.selection or '{}'))
-        toi = selection.get('toi', None)
-        aoi = selection.get('aoi', None)
+            # list available
+            selection = SELECTION_PARSER.parse(json.loads(obj.selection or '{}'))
+            toi = selection.get('toi', None)
+            aoi = selection.get('aoi', None)
 
-        coverages = get_coverages(obj.source.eoobj)
-        if toi:
-            coverages = coverages.filter(
-                begin_time__lte=toi['end'],
-                end_time__gte=toi['start'],
-            )
-        if aoi:
-            bbox_geom = Polygon.from_bbox((
-                aoi['left'] - TOLERANCE,
-                aoi['bottom'] - TOLERANCE,
-                aoi['right'] + TOLERANCE,
-                aoi['top'] + TOLERANCE,
-            ))
-            coverages = coverages.filter(
-                footprint__contains=bbox_geom,
-                #footprint__intersects=bbox_geom,
-                #footprint__within=bbox_geom,
-            )
+            coverages = get_coverages(obj.source.eoobj)
+            if toi:
+                coverages = coverages.filter(
+                    begin_time__lte=toi['end'],
+                    end_time__gte=toi['start'],
+                )
+            if aoi:
+                bbox_geom = Polygon.from_bbox((
+                    aoi['left'] + TOLERANCE,
+                    aoi['bottom'] + TOLERANCE,
+                    aoi['right'] - TOLERANCE,
+                    aoi['top'] - TOLERANCE,
+                ))
+                coverages = coverages.filter(
+                    footprint__contains=bbox_geom,
+                    #footprint__intersects=bbox_geom,
+                    #footprint__within=bbox_geom,
+                )
 
-        return 200, [
-            coverage_serialize_extra(cov, [('in', cov.identifier in included)])
-            for cov in coverages.order_by('begin_time', 'end_time')
-        ]
+            return 200, [
+                coverage_serialize_extra(cov, [('in', cov.identifier in included)])
+                for cov in coverages.order_by('begin_time', 'end_time')
+            ]
 
 
 @error_handler
