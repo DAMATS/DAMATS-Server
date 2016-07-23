@@ -180,8 +180,7 @@ class ProcessLDA(Component):
         # execute the algorithm
         context.update_progress(5, "Executing the algorithm.")
 
-        job_id = dirname(abspath('.'))
-        filename = "%s_lda.tif" % job_id
+        filename = "%s_lda.tif" % context.identifer
 
         lda_wrapper(
             sits_content, nclasses, nclusters, patch_size, filename=filename,
