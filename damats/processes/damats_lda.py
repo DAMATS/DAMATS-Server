@@ -214,7 +214,7 @@ def download_coverages(url, coverages, selection, output_dir, logger,
                 'subsetting_srid': output_srid,
                 'output_srid': output_srid,
             })
-            options.update()
+            options.update(get_size_and_subset(filename))
 
     return images
 
