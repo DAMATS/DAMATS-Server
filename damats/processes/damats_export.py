@@ -1,6 +1,6 @@
 #-------------------------------------------------------------------------------
 #
-#  LDA algorithm WPS process wrapper
+#  Export SITS subset images.
 #
 # Project: DAMATS
 # Authors: Martin Paces <martin.paces@eox.at>
@@ -27,41 +27,39 @@
 # THE SOFTWARE.
 #-------------------------------------------------------------------------------
 # pylint: disable=too-few-public-methods, unused-argument
-# pylint: disable=too-many-arguments, too-many-locals
 
 import sys
 #TODO fix the path configuration
 sys.path.append("/srv/damats/algs")
 
 import json
-from numpy import seterr
+from cStringIO import StringIO
 from osgeo import gdal; gdal.UseExceptions() # pylint: disable=multiple-statements
 from eoxserver.core import Component, implements
 from eoxserver.services.ows.wps.interfaces import ProcessInterface
 from eoxserver.services.ows.wps.exceptions import InvalidInputValueError
-from eoxserver.services.ows.wps.parameters import LiteralData, AllowedRange
+from eoxserver.services.ows.wps.parameters import (
+    LiteralData, ComplexData, AllowedRange, CDFileWrapper, FormatText,
+)
 from damats.webapp.models import TimeSeries
 from damats.webapp.views_time_series import get_coverages, SELECTION_PARSER
 from damats.processes.utils import download_coverages
-from lda.lda2 import lda_wrapper
 
 
-#OUTPUT = "lda.tif"
 SITS_DIR = "sits" # path must be with respect to the current workspace
-CHUNK_SIZE = 1024 * 1024 # 1MiB
 
 # TODO: fix the base WCS URL configuration
 WCS_URL = "http://127.0.0.1:80/eoxs/ows?"
 
 
-class ProcessLDA(Component):
-    """ SITS analysis using Latent Dirichlet Allocation (LDA) """
+class ExportSITS(Component):
+    """ Auxiliary process exporting the SITS images' subsets. """
     implements(ProcessInterface)
 
     synchronous = False
     asynchronous = True
-    identifier = "DAMATS:LDA"
-    title = "Latent Dirichlet Allocation (LDA)"
+    identifier = "DAMATS:ExportSITS"
+    title = "SIST Export"
     metadata = {}
     profiles = ["DAMATS-SITS-processor"]
 
@@ -70,24 +68,6 @@ class ProcessLDA(Component):
             'sits', str,
             title="Satellite Image Time Series (SITS)",
             abstract="Satellite Image Time Series (SITS) identifier."
-        )),
-        ("nclasses", LiteralData(
-            'nclasses', int, optional=True, default=10,
-            allowed_values=AllowedRange(2, 64, dtype=int),
-            title="number of classes",
-            abstract="Optional number of classes parameter.",
-        )),
-        ("nclusters", LiteralData(
-            'nclusters', int, optional=True, default=100,
-            allowed_values=AllowedRange(100, 200, dtype=int),
-            title="number of clusters",
-            abstract="Optional number of clusters parameter.",
-        )),
-        ("patch_size", LiteralData(
-            'patch_size', int, optional=True, default=20,
-            allowed_values=(20, 50, 100),
-            title="patch size",
-            abstract="Optional patch size parameter.",
         )),
         ("scaling_factor", LiteralData(
             'scaling_factor', float, optional=True, default=1.0,
@@ -106,12 +86,15 @@ class ProcessLDA(Component):
     ]
 
     outputs = [
-        ("debug_output", str), # to be removed
+        ("output", ComplexData(
+            'index', title="Index of the images.",
+            abstract="Tab separated index of the exported images.",
+            formats=(FormatText('text/tab-separated-values'))
+        )),
     ]
 
     @staticmethod
-    def execute(sits, nclasses, nclusters, patch_size, context,
-                scaling_factor, interp_method, **kwargs):
+    def execute(sits, scaling_factor, interp_method, context, output, **kwargs):
         """ This method holds the actual executed process' code. """
         logger = context.logger
 
@@ -134,32 +117,19 @@ class ProcessLDA(Component):
             get_coverages(sits_obj.eoobj).order_by('begin_time', 'identifier')
         ]
 
-        context.update_progress(0, "Preparing the inputs data subsets.")
+        context.update_progress(0, "Publishing the data subsets.")
 
         # download the coverages
-        sits_content = download_coverages(
+        images = download_coverages(
             WCS_URL, coverages, selection, SITS_DIR, context.logger,
             scaling_factor, interp_method,
         )
 
-        # execute the algorithm
-        context.update_progress(5, "Executing the algorithm.")
+        # publish the image subsets
+        output_fobj = StringIO()
+        output_fobj.write("coverageIdentifier\tlocalFilename\tdownloadURL\r\n")
+        for coverage, image in zip(coverages, images):
+            filename, url = context.publish(image)
+            output_fobj.write("%s\t%s\t%s\r\n" % (coverage, filename, url))
 
-        filename = "%s_lda.tif" % context.identifier
-
-
-        # detect all sorts of floating-point issues and throw an exception
-        numpy_error_settings = seterr(all='raise')
-        try:
-            lda_wrapper(
-                sits_content, nclasses, nclusters, patch_size, filename=filename,
-                cpu_nr=1, custom_logger=context.logger,
-                status_callback=context.update_progress,
-            )
-        finally:
-            # restore the original behaviour
-            seterr(**numpy_error_settings)
-
-        filename, url = context.publish(filename)
-
-        return str((filename, url))
+        return CDFileWrapper(output_fobj, **output)
