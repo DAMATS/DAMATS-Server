@@ -34,70 +34,26 @@ sys.path.append("/srv/damats/algs")
 
 import json
 from os import makedirs
-from os.path import join, dirname, abspath
-from urllib2 import urlopen
+from os.path import join
 from contextlib import closing
 from shutil import copyfileobj
+from osgeo import gdal; gdal.UseExceptions() # pylint: disable=multiple-statements
 from eoxserver.core import Component, implements
 from eoxserver.services.ows.wps.interfaces import ProcessInterface
 from eoxserver.services.ows.wps.exceptions import InvalidInputValueError
 from eoxserver.services.ows.wps.parameters import LiteralData, AllowedRange
 from damats.webapp.models import TimeSeries
 from damats.webapp.views_time_series import get_coverages, SELECTION_PARSER
+from damats.util.wcs_client import WCS20Client
 from lda.lda2 import lda_wrapper
 
 
-OUTPUT = "lda.tif"
+#OUTPUT = "lda.tif"
 SITS_DIR = "sits" # path must be with respect to the current workspace
 CHUNK_SIZE = 1024 * 1024 # 1MiB
 
 # TODO: fix the base WCS URL configuration
 WCS_URL = "http://127.0.0.1:80/eoxs/ows?"
-
-def get_wcs_request(covid, aoi):
-    """ Get the WCS 2.0 HTTP/POST request. """
-
-    def _request_():
-        yield '<?xml version="1.0"?>'
-        yield '<wcs:GetCoverage service="WCS" version="2.0.0"'
-        yield '  xmlns:wcs="http://www.opengis.net/wcs/2.0"'
-        yield '  xmlns:wcscrs="http://www.opengis.net/wcs/crs/1.0"'
-        yield '  xmlns:wcsmask="http://www.opengis.net/wcs/mask/1.0"'
-        yield '  xmlns:wcsrsub="http://www.opengis.net/wcs/range-subsetting/1.0">'
-        yield '<wcs:CoverageId>%s</wcs:CoverageId>' % covid
-        yield '<wcs:format>image/tiff</wcs:format>'
-        yield '<wcs:DimensionTrim>'
-        yield '  <wcs:Dimension>x</wcs:Dimension>'
-        yield '  <wcs:TrimLow>%.9g</wcs:TrimLow>' % aoi['left']
-        yield '  <wcs:TrimHigh>%.9g</wcs:TrimHigh>' % aoi['right']
-        yield '</wcs:DimensionTrim>'
-        yield '<wcs:DimensionTrim>'
-        yield '  <wcs:Dimension>y</wcs:Dimension>'
-        yield '  <wcs:TrimLow>%.9g</wcs:TrimLow>' % aoi['bottom']
-        yield '  <wcs:TrimHigh>%.9g</wcs:TrimHigh>' % aoi['top']
-        yield '</wcs:DimensionTrim>'
-        yield '<wcs:Extension><wcscrs:subsettingCrs>http://www.opengis.net/def/'\
-              'crs/EPSG/0/4326</wcscrs:subsettingCrs></wcs:Extension>'
-        yield '</wcs:GetCoverage>'
-
-    return "\n".join(_request_())
-
-
-def download(url, path, data=None, logger=None):
-    """ Download file to the given path. """
-    if logger:
-        logger.debug('downloading %s from %s', path, url)
-        if data:
-            logger.debug('post payload:\n%s', data)
-
-    with open(path, 'wb') as fdst:
-        with closing(urlopen(url, data)) as fsrc:
-            copyfileobj(fsrc, fdst, CHUNK_SIZE)
-
-    if logger:
-        logger.info("downloaded %s", path)
-
-    return path
 
 
 class ProcessLDA(Component):
@@ -118,22 +74,36 @@ class ProcessLDA(Component):
             abstract="Satellite Image Time Series (SITS) identifier."
         )),
         ("nclasses", LiteralData(
-            'nclasses', int, optional=True,
+            'nclasses', int, optional=True, default=10,
+            allowed_values=AllowedRange(2, 64, dtype=int),
             title="number of classes",
             abstract="Optional number of classes parameter.",
-            allowed_values=AllowedRange(2, 64, dtype=int), default=10,
         )),
         ("nclusters", LiteralData(
-            'nclusters', int, optional=True,
+            'nclusters', int, optional=True, default=100,
+            allowed_values=AllowedRange(100, 200, dtype=int),
             title="number of clusters",
             abstract="Optional number of clusters parameter.",
-            allowed_values=AllowedRange(100, 200, dtype=int), default=100,
         )),
         ("patch_size", LiteralData(
-            'patch_size', int, optional=True,
+            'patch_size', int, optional=True, default=20,
+            allowed_values=(20, 50, 100),
             title="patch size",
             abstract="Optional patch size parameter.",
-            allowed_values=(20, 50, 100), default=20,
+        )),
+        ("scaling_factor", LiteralData(
+            'scaling_factor', float, optional=True, default=1.0,
+            allowed_values=AllowedRange(0.0, 1.0, 'open-closed', dtype=float),
+            title="Image scaling factor.",
+            abstract="This parameter defines the image downscaling factor."
+        )),
+        ("interp_method", LiteralData(
+            'interp_method', str, optional=True,
+            default='nearest-neighbour', allowed_values=(
+                'average', 'nearest-neighbour', 'bilinear',
+                'cubic', 'cubic-spline', 'lanczos', 'mode',
+            ), title="Interpolation method.",
+            abstract="Interpolation method used by the image re-sampling."
         )),
     ]
 
@@ -142,7 +112,8 @@ class ProcessLDA(Component):
     ]
 
     @staticmethod
-    def execute(sits, nclasses, nclusters, patch_size, context, **kwargs):
+    def execute(sits, nclasses, nclusters, patch_size, context,
+                scaling_factor, interp_method, **kwargs):
         """ This method holds the actual executed process' code. """
         logger = context.logger
 
@@ -168,19 +139,15 @@ class ProcessLDA(Component):
         context.update_progress(0, "Preparing the inputs data subsets.")
 
         # download the coverages
-        makedirs(SITS_DIR)
-        sits_content = []
-        output_urls = []
-        for cid in coverages:
-            logger.debug("COVERAGE: %s", cid)
-            path = join(SITS_DIR, "%s.tif" % cid)
-            download(WCS_URL, path, data=get_wcs_request(cid, selection['aoi']))
-            sits_content.append(path)
+        sits_content = download_coverages(
+            WCS_URL, coverages, selection, SITS_DIR, context.logger,
+            scaling_factor, interp_method,
+        )
 
         # execute the algorithm
         context.update_progress(5, "Executing the algorithm.")
 
-        filename = "%s_lda.tif" % context.identifer
+        filename = "%s_lda.tif" % context.identifier
 
         lda_wrapper(
             sits_content, nclasses, nclusters, patch_size, filename=filename,
@@ -188,6 +155,85 @@ class ProcessLDA(Component):
             status_callback=context.update_progress,
         )
 
-        filename, url = context.publish(OUTPUT)
+        filename, url = context.publish(filename)
 
         return str((filename, url))
+
+#-------------------------------------------------------------------------------
+
+def download_coverages(url, coverages, selection, output_dir, logger,
+                       scaling_factor=1.0, interp_method='nearest-neighbour'):
+    """ Download coverages to the given output directory. """
+    base_options = {
+        'format': 'image/tiff',
+        'interpolation': interp_method,
+        'geotiff': {
+            'compression': 'None',
+            'tiling': 'true',
+            'tilewidth': 256,
+            'tileheight': 256,
+        }
+    }
+
+    # options of the first (master) image
+    options = dict(base_options)
+    aoi = selection['aoi']
+    options.update({
+        'subsetting_srid': 4326,
+        'subset': {
+            'x': (aoi['left'], aoi['right']),
+            'y': (aoi['bottom'], aoi['top']),
+        },
+        'scale': float(scaling_factor),
+    })
+
+    # download the coverages
+    makedirs(output_dir)
+    images = []
+    client = WCS20Client(url)
+    for idx, coverage in enumerate(coverages):
+        logger.debug("COVERAGE: %s", coverage)
+
+        if idx == 0:
+            # query SRID of the master image
+            options['output_srid'] = output_srid = (
+                client.describe_coverage(coverage).srid
+            )
+
+        filename = join(output_dir, "%s.tif" % coverage)
+        with closing(client.get_coverage(coverage, **options)) as fsrc:
+            with file(filename, "wb") as fdst:
+                copyfileobj(fsrc, fdst, CHUNK_SIZE)
+        logger.info("downloaded %s", filename)
+        images.append(filename)
+
+        if idx == 0:
+            # set options for the slave images
+            options = dict(base_options)
+            options.update({
+                'subsetting_srid': output_srid,
+                'output_srid': output_srid,
+            })
+            options.update()
+
+    return images
+
+
+def get_size_and_subset(image):
+    """ Get size and subset parameters from the extent of an existing image. """
+    dataset = gdal.Open(image)
+    trn = dataset.GetGeoTransform()
+
+    size_x = dataset.RasterXSize
+    size_y = dataset.RasterYSize
+    transform = lambda x, y: (
+        trn[0] + trn[1] * x + trn[2] * y,
+        trn[3] + trn[4] * x + trn[5] * y,
+    )
+    x_ul, y_ul = transform(0, 0)
+    x_br, y_br = transform(size_x, size_y)
+
+    return {
+        'size': {'x': size_x, 'y': size_y},
+        'subset': {'x': (x_ul, x_br), 'y': (y_br, y_ul)},
+    }
