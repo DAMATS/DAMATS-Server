@@ -149,7 +149,7 @@ class ProcessLDA(Component):
 
 
         # detect various floating-point errors and always throw an exception
-        numpy_error_settings = seterr(all='raise')
+        numpy_error_settings = seterr(divide='raise', invalid='raise')
         try:
             lda_wrapper(
                 sits_content, nclusters, nclasses,
