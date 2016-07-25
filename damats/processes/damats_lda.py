@@ -148,11 +148,12 @@ class ProcessLDA(Component):
         filename = "%s_lda.tif" % context.identifier
 
 
-        # detect all sorts of floating-point issues and throw an exception
+        # detect various floating-point errors and always throw an exception
         numpy_error_settings = seterr(all='raise')
         try:
             lda_wrapper(
-                sits_content, nclasses, nclusters, patch_size, filename=filename,
+                sits_content, nclusters, nclasses,
+                patch_size, filename=filename,
                 cpu_nr=1, custom_logger=context.logger,
                 status_callback=context.update_progress,
             )
