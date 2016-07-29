@@ -29,13 +29,9 @@
 # pylint: disable=missing-docstring,unused-argument
 
 from collections import OrderedDict
-from django.db.models import Q
 from damats.util.view_utils import (
     error_handler, method_allow, rest_json,
     # HttpError, error_handler, method_allow, method_allow_conditional,
-)
-from damats.webapp.models import (
-    Process, Job, #Result,
 )
 from damats.webapp.views_common import authorisation, JSON_OPTS
 from damats.webapp.views_users import (
@@ -46,36 +42,13 @@ from damats.webapp.views_time_series import (
     sources_coverage_view, time_series_coverage_view,
     get_sources, get_time_series,
 )
+from damats.webapp.view_processes import (
+    get_processes, get_jobs, processes_view, jobs_view, JOB_STATUS_DICT,
+)
 
-JOB_STATUS_DICT = dict(Job.STATUS_CHOICES)
 INTERFACE_NAME = "DAMATS"
 INTERFACE_VERSION = "0.0.2"
 
-#-------------------------------------------------------------------------------
-
-def get_processes(user):
-    """ Get query set of all Process objects accessible by the user. """
-    id_list = [user.identifier] + [obj.identifier for obj in user.groups.all()]
-    return Process.objects.filter(readers__identifier__in=id_list)
-
-def get_jobs(user, owned=True, read_only=True):
-    """ Get query set of Job objects accessible by the user.
-        By default both owned and read-only (items shared by a different users)
-        are returned.
-    """
-    id_list = [user.identifier] + [obj.identifier for obj in user.groups.all()]
-    qset = Job.objects.select_related('owner')
-    if owned and read_only:
-        qset = qset.filter(Q(owner=user) | Q(readers__identifier__in=id_list))
-    elif owned:
-        qset = qset.filter(owner=user)
-    elif read_only:
-        qset = qset.filter(readers__identifier__in=id_list)
-    else: #nothing selected
-        return []
-    return qset
-
-#-------------------------------------------------------------------------------
 
 # TEST ROOT VIEW
 @error_handler
@@ -128,44 +101,3 @@ def root_view(method, input_, user, **kwargs):
         ("time_series", time_series),
         ("jobs", jobs),
     ))
-
-
-@error_handler
-@authorisation
-@method_allow(['GET'])
-@rest_json(JSON_OPTS)
-def processes_view(method, input_, user, **kwargs):
-    """ List avaiable processes.
-    """
-    response = []
-    for obj in get_processes(user):
-        item = {
-            "identifier": obj.identifier,
-        }
-        if obj.name:
-            item['name'] = obj.name
-        if obj.description:
-            item['description'] = obj.description
-        response.append(item)
-    return 200, response
-
-@error_handler
-@authorisation
-@method_allow(['GET'])
-@rest_json(JSON_OPTS)
-def jobs_view(method, input_, user, identifier=None, **kwargs):
-    """ List avaiable time-series.
-    """
-    response = []
-    for obj in get_jobs(user):
-        item = {
-            "identifier": obj.identifier,
-            "read_only": obj.owner != user,
-            "status": JOB_STATUS_DICT[obj.status],
-        }
-        if obj.name:
-            item['name'] = obj.name
-        if obj.description:
-            item['description'] = obj.description
-        response.append(item)
-    return 200, response
