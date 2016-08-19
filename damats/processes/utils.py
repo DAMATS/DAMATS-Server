@@ -37,6 +37,31 @@ from damats.util.wcs_client import WCS20Client
 
 CHUNK_SIZE = 1024 * 1024 # 1MiB
 
+
+def update_object(obj, **kwargs):
+    """ Update Django model instance"""
+    for key, value in kwargs.iteritems():
+        setattr(obj, key, value)
+    obj.save()
+
+
+def get_header(header, default=None):
+    """ Second order function returning function extracting header from
+    the HTTP request.
+    """
+    return get_meta("HTTP_" + header.upper().replace("-", "_"), default)
+
+
+def get_meta(meta_key, default=None):
+    """ Second order function returning function extracting meta field from
+    the Django HTTP request.
+    """
+    def _get_meta(request):
+        """ Function extracting META field from the HTTP request. """
+        return request.META.get(meta_key, default)
+    return _get_meta
+
+
 def download_coverages(url, coverages, selection, output_dir, logger,
                        scaling_factor=1.0, interp_method='nearest-neighbour'):
     """ Download coverages to the given output directory. """

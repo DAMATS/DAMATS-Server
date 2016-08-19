@@ -42,8 +42,9 @@ from damats.webapp.views_time_series import (
     sources_coverage_view, time_series_coverage_view,
     get_sources, get_time_series,
 )
-from damats.webapp.view_processes import (
-    get_processes, get_jobs, processes_view, jobs_view, JOB_STATUS_DICT,
+from damats.webapp.views_processes import (
+    get_processes, get_jobs, processes_view, jobs_view, job_item_view,
+    JOB_STATUS_DICT,
 )
 
 INTERFACE_NAME = "DAMATS"

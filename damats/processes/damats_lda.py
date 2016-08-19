@@ -29,48 +29,30 @@
 # pylint: disable=too-few-public-methods, unused-argument
 # pylint: disable=too-many-arguments, too-many-locals
 
+import json
 import sys
+from numpy import seterr
+from eoxserver.services.ows.wps.parameters import LiteralData, AllowedRange
+from damats.processes.sits_processor import SITSProcessor
+from damats.webapp.views_time_series import get_coverages, SELECTION_PARSER
+from damats.processes.utils import download_coverages
+
 #TODO fix the path configuration
 sys.path.append("/srv/damats/algs")
 
-import json
-from numpy import seterr
-from osgeo import gdal; gdal.UseExceptions() # pylint: disable=multiple-statements
-from eoxserver.core import Component, implements
-from eoxserver.services.ows.wps.interfaces import ProcessInterface
-from eoxserver.services.ows.wps.exceptions import InvalidInputValueError
-from eoxserver.services.ows.wps.parameters import LiteralData, AllowedRange
-from damats.webapp.models import TimeSeries
-from damats.webapp.views_time_series import get_coverages, SELECTION_PARSER
-from damats.processes.utils import download_coverages
 from lda.lda2 import lda_wrapper
-
-
-#OUTPUT = "lda.tif"
-SITS_DIR = "sits" # path must be with respect to the current workspace
-CHUNK_SIZE = 1024 * 1024 # 1MiB
 
 # TODO: fix the base WCS URL configuration
 WCS_URL = "http://127.0.0.1:80/eoxs/ows?"
+SITS_DIR = "sits" # path must be with respect to the current workspace
 
 
-class ProcessLDA(Component):
+class ProcessLDA(SITSProcessor):
     """ SITS analysis using Latent Dirichlet Allocation (LDA) """
-    implements(ProcessInterface)
-
-    synchronous = False
-    asynchronous = True
     identifier = "DAMATS:LDA"
     title = "Latent Dirichlet Allocation (LDA)"
-    metadata = {}
-    profiles = ["DAMATS-SITS-processor"]
 
-    inputs = [
-        ("sits", LiteralData(
-            'sits', str,
-            title="Satellite Image Time Series (SITS)",
-            abstract="Satellite Image Time Series (SITS) identifier."
-        )),
+    inputs = SITSProcessor.inputs + [
         ("nclasses", LiteralData(
             'nclasses', int, optional=True, default=10,
             allowed_values=AllowedRange(2, 64, dtype=int),
@@ -109,29 +91,17 @@ class ProcessLDA(Component):
         ("debug_output", str), # to be removed
     ]
 
-    @staticmethod
-    def execute(sits, nclasses, nclusters, patch_size, context,
-                scaling_factor, interp_method, **kwargs):
-        """ This method holds the actual executed process' code. """
-        logger = context.logger
-
-        # get the time-series Django object
-        try:
-            sits_obj = TimeSeries.objects.get(eoobj__identifier=sits)
-        except TimeSeries.DoesNotExist:
-            raise InvalidInputValueError('sits')
-
-        logger.debug("SITS: %s OK", sits)
-
+    def process_sits(self, sits, nclasses, nclusters, patch_size,
+                     scaling_factor, interp_method, context, **kwargs):
         # parse selection
         selection = SELECTION_PARSER.parse(
-            json.loads(sits_obj.selection or '{}')
+            json.loads(sits.selection or '{}')
         )
 
         # get list of the contained coverages
         coverages = [
             cov_obj.identifier for cov_obj in
-            get_coverages(sits_obj.eoobj).order_by('begin_time', 'identifier')
+            get_coverages(sits.eoobj).order_by('begin_time', 'identifier')
         ]
 
         context.update_progress(0, "Preparing the inputs data subsets.")

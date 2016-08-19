@@ -48,22 +48,13 @@ from damats.util.object_parser import (
 )
 from damats.util.view_utils import (
     HttpError, error_handler, method_allow, method_allow_conditional,
-    rest_json,
+    rest_json, pack_datetime,
 )
 from damats.webapp.views_common import authorisation, JSON_OPTS
 
 TOLERANCE = 0.0
 
 #-------------------------------------------------------------------------------
-
-def pack_datetime(obj):
-    if isinstance(obj, datetime):
-        return "%sZ" % obj.isoformat('T')
-    elif not isinstance(obj, dict):
-        return obj
-    else:
-        return dict((key, pack_datetime(val)) for key, val in obj.iteritems())
-
 SELECTION_PARSER = Object((
     ('aoi', Object((
         ('left', Float, True),
@@ -252,7 +243,9 @@ def time_series_serialize(obj, user, extras=None):
         "source": obj.source.eoobj.identifier,
         "name": obj.name or None,
         "description": obj.description or None,
-        "editable": obj.editable and obj.owner == user,
+        "editable": (
+            obj.editable and obj.owner == user and not obj.jobs.exists()
+        ),
         "owned": obj.owner == user,
         "selection": json.loads(obj.selection or '{}'),
         "common_intersection_area": extract_coordinates(common),
@@ -416,7 +409,7 @@ def time_series_item_view(method, input_, user, identifier, **kwargs):
 
     if method == "DELETE":
         if obj.owner != user:
-            return 405, "Method not allowed\nRead-only time-series!"
+            raise HttpError(405, "Method not allowed\nRead-only time-series!")
         # delete time-series
         eoobj = obj.eoobj
         with transaction.atomic():
@@ -425,8 +418,8 @@ def time_series_item_view(method, input_, user, identifier, **kwargs):
         return 204, None
 
     elif method == "POST":
-        if not obj.editable or obj.owner != user:
-            return 405, "Method not allowed\nRead-only time-series!"
+        if not obj.editable or obj.owner != user or obj.jobs.exists():
+            raise HttpError(405, "Method not allowed\nRead-only time-series!")
         # link an existing coverage from source to the time-series
         if get_coverages(obj.eoobj).filter(identifier=input_['id']).exists():
             # the record already exists
@@ -505,15 +498,15 @@ def time_series_coverage_view(method, input_, user, identifier, coverage,
         raise HttpError(404, "Not found")
 
     if method == "DELETE":
-        if not obj.editable or obj.owner != user:
-            return 405, "Method not allowed\nRead-only time-series!"
+        if not obj.editable or obj.owner != user or obj.jobs.exists():
+            raise HttpError(405, "Method not allowed\nRead-only time-series!")
         # unlink coverage from a collection
         obj.eoobj.remove(cov)
         return 204, None
 
     if method == "PUT":
-        if not obj.editable or obj.owner != user:
-            return 405, "Method not allowed\nRead-only time-series!"
+        if not obj.editable or obj.owner != user or obj.jobs.exists():
+            raise HttpError(405, "Method not allowed\nRead-only time-series!")
         # PUT is used by the SITS editor to control content of the time-series
         exists = get_coverages(obj.eoobj).filter(identifier=coverage).exists()
         if input_['in'] and not exists:

@@ -26,49 +26,29 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 #-------------------------------------------------------------------------------
-# pylint: disable=too-few-public-methods, unused-argument
+# pylint: disable=too-many-arguments,too-many-locals
 
-import sys
-#TODO fix the path configuration
-sys.path.append("/srv/damats/algs")
 
 import json
 from cStringIO import StringIO
-from osgeo import gdal; gdal.UseExceptions() # pylint: disable=multiple-statements
-from eoxserver.core import Component, implements
-from eoxserver.services.ows.wps.interfaces import ProcessInterface
-from eoxserver.services.ows.wps.exceptions import InvalidInputValueError
 from eoxserver.services.ows.wps.parameters import (
     LiteralData, ComplexData, AllowedRange, CDFileWrapper, FormatText,
 )
-from damats.webapp.models import TimeSeries
+from damats.processes.sits_processor import SITSProcessor
 from damats.webapp.views_time_series import get_coverages, SELECTION_PARSER
 from damats.processes.utils import download_coverages
 
-
-SITS_DIR = "sits" # path must be with respect to the current workspace
-
 # TODO: fix the base WCS URL configuration
 WCS_URL = "http://127.0.0.1:80/eoxs/ows?"
+SITS_DIR = "sits" # path must be with respect to the current workspace
 
 
-class ExportSITS(Component):
+class ExportSITS(SITSProcessor):
     """ Auxiliary process exporting the SITS images' subsets. """
-    implements(ProcessInterface)
-
-    synchronous = False
-    asynchronous = True
     identifier = "DAMATS:ExportSITS"
     title = "SIST Export"
-    metadata = {}
-    profiles = ["DAMATS-SITS-processor"]
 
-    inputs = [
-        ("sits", LiteralData(
-            'sits', str,
-            title="Satellite Image Time Series (SITS)",
-            abstract="Satellite Image Time Series (SITS) identifier."
-        )),
+    inputs = SITSProcessor.inputs + [
         ("scaling_factor", LiteralData(
             'scaling_factor', float, optional=True, default=1.0,
             allowed_values=AllowedRange(0.0, 1.0, 'open-closed', dtype=float),
@@ -93,28 +73,17 @@ class ExportSITS(Component):
         )),
     ]
 
-    @staticmethod
-    def execute(sits, scaling_factor, interp_method, context, output, **kwargs):
-        """ This method holds the actual executed process' code. """
-        logger = context.logger
-
-        # get the time-series Django object
-        try:
-            sits_obj = TimeSeries.objects.get(eoobj__identifier=sits)
-        except TimeSeries.DoesNotExist:
-            raise InvalidInputValueError('sits')
-
-        logger.debug("SITS: %s OK", sits)
-
+    def process_sits(self, sits, scaling_factor, interp_method, context,
+                     output, **kwargs):
         # parse selection
         selection = SELECTION_PARSER.parse(
-            json.loads(sits_obj.selection or '{}')
+            json.loads(sits.selection or '{}')
         )
 
         # get list of the contained coverages
         coverages = [
             cov_obj.identifier for cov_obj in
-            get_coverages(sits_obj.eoobj).order_by('begin_time', 'identifier')
+            get_coverages(sits.eoobj).order_by('begin_time', 'identifier')
         ]
 
         context.update_progress(0, "Publishing the data subsets.")

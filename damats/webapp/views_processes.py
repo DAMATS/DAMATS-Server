@@ -28,23 +28,42 @@
 #-------------------------------------------------------------------------------
 # pylint: disable=missing-docstring,unused-argument
 
+import json
+import uuid
+from django.db.models import Q
+from django.core.exceptions import ObjectDoesNotExist
 from eoxserver.core import env, Component, ExtensionPoint
-from eoxserver.services.ows.wps.interfaces import ProcessInterface
+from eoxserver.services.ows.wps.interfaces import (
+    ProcessInterface, AsyncBackendInterface,
+)
 from eoxserver.services.ows.wps.parameters import (
     fix_parameter, AllowedAny, AllowedEnum, AllowedRange,
 )
-from django.db.models import Q
+from damats.util.object_parser import (
+    Object, String, Null, AnyObject,
+)
 from damats.util.view_utils import (
-    error_handler, method_allow, rest_json,
-    # HttpError, error_handler, method_allow, method_allow_conditional,
+    HttpError, error_handler, method_allow, method_allow_conditional,
+    rest_json, pack_datetime,
 )
 from damats.webapp.models import (
     Process, Job, #Result,
 )
 from damats.webapp.views_common import authorisation, JSON_OPTS
+from damats.webapp.views_time_series import get_time_series
 
 JOB_STATUS_DICT = dict(Job.STATUS_CHOICES)
 SITS_PROCESSOR_PROFILE = "DAMATS-SITS-processor"
+
+#-------------------------------------------------------------------------------
+
+JOB_PARSER = Object((
+    ('process', String, True),
+    ('time_series', String, True),
+    ('inputs', (AnyObject, Null), False, {}),
+    ('name', (String, Null), False, None),
+    ('description', (String, Null), False, None),
+))
 
 #-------------------------------------------------------------------------------
 
@@ -53,16 +72,32 @@ class _ProcessProvider(Component):
     #pylint: disable=too-few-public-methods
     processes = ExtensionPoint(ProcessInterface)
 
+
+class _AsyncBackendProvider(Component):
+    """ Component providing list of WPS AsyncBackend components. """
+    #pylint: disable=too-few-public-methods
+    async_backends = ExtensionPoint(AsyncBackendInterface)
+
+
 def get_wps_processes():
     """ Get a dictionary of the WPS processes implementing the SITS processor
     interface.
     """
     return dict(
-        (process.identifier, process)
-        for process in _ProcessProvider(env).processes
-        if getattr(process, 'asynchronous', False)
+        (process.identifier, process) for process
+        in _ProcessProvider(env).processes if (
+            getattr(process, 'asynchronous', False) and
+            SITS_PROCESSOR_PROFILE in getattr(process, 'profiles', [])
+        )
     )
 
+def get_wps_async_backend():
+    """ Get the asynchronous WPS back-end. """
+    for async_backend in _AsyncBackendProvider(env).async_backends:
+        return async_backend
+    return None
+
+#-------------------------------------------------------------------------------
 
 def extend_processes(processes):
     """ Add the process definition to the process. """
@@ -79,8 +114,10 @@ def extend_processes(processes):
             process.description = wps_process.__doc__
         # extend the class with the sanitized WPS input definitions
         process.inputs = [
-            (id_, fix_parameter(id_, def_)) for id_, def_
-            in wps_processes[process.identifier].inputs
+            idef for idef in (
+                fix_parameter(iid, idef) for iid, idef
+                in wps_processes[process.identifier].inputs
+            ) if not idef.identifier.startswith('\\')
         ]
         yield process
 
@@ -107,6 +144,46 @@ def get_jobs(user, owned=True, read_only=True):
     else: #nothing selected
         return []
     return qset
+
+
+def is_job_owned(request, user, identifier, *args, **kwargs):
+    """ Return true if the time_series object is owned by the user. """
+    try:
+        obj = get_jobs(user).get(identifier=identifier)
+    except ObjectDoesNotExist:
+        raise HttpError(404, "Not found")
+    return obj.owner == user
+
+
+def create_job(input_, user):
+    """ Handle create requests and create a new Job object. """
+
+    # get the process and time series objects
+    try:
+        process = get_processes(user).get(
+            identifier=input_.get('process', None)
+        )
+        time_series = get_time_series(user).get(
+            eoobj__identifier=input_.get('time_series', None)
+        )
+    except ObjectDoesNotExist:
+        raise HttpError(400, "Bad Request")
+
+    # TODO: lock the time-series
+
+    # Create a new object.
+    obj = Job()
+    obj.owner = user
+    obj.identifier = "job-" + uuid.uuid4().hex
+    obj.name = input_.get('name', None) or None
+    obj.description = input_.get('description', None) or None
+    obj.time_series = time_series
+    obj.process = process
+    obj.inputs = json.dumps(pack_datetime(input_.get('inputs', {}) or {}))
+    obj.save()
+
+    return obj
+
 
 #-------------------------------------------------------------------------------
 
@@ -157,12 +234,34 @@ def process_serialize(obj, extras=None):
     """ Serialize process object. """
     response = dict(extras) if extras else {}
     response["identifier"] = obj.identifier
-    response["inputs"] = [input_serialize(def_) for _, def_ in obj.inputs]
+    response["inputs"] = [input_serialize(idef) for idef in obj.inputs]
     if obj.name:
         response['name'] = obj.name
     if obj.description:
         response['description'] = obj.description
     return response
+
+
+def job_serialize(obj, user, extras=None):
+    response = dict(extras) if extras else {}
+    response.update({
+        "identifier": obj.identifier,
+        "read_only": obj.owner != user,
+        "status": JOB_STATUS_DICT[obj.status],
+        "created": pack_datetime(obj.created),
+        "updated": pack_datetime(obj.updated),
+        "inputs": json.loads(obj.inputs or '{}'),
+        "process": obj.process.identifier,
+        "time_series": obj.time_series.eoobj.identifier,
+        "wps_job_id": obj.wps_job_id,
+        "wps_response_url": obj.wps_response_url,
+    })
+    if obj.name:
+        response['name'] = obj.name
+    if obj.description:
+        response['description'] = obj.description
+    return response
+
 
 #-------------------------------------------------------------------------------
 
@@ -171,7 +270,7 @@ def process_serialize(obj, extras=None):
 @method_allow(['GET'])
 @rest_json(JSON_OPTS)
 def processes_view(method, input_, user, **kwargs):
-    """ List avaiable processes.
+    """ List available processes.
     """
     response = []
 
@@ -182,21 +281,45 @@ def processes_view(method, input_, user, **kwargs):
 
 @error_handler
 @authorisation
-@method_allow(['GET'])
-@rest_json(JSON_OPTS)
-def jobs_view(method, input_, user, identifier=None, **kwargs):
-    """ List avaiable time-series.
+@method_allow(['GET', 'POST'])
+@rest_json(JSON_OPTS, JOB_PARSER)
+def jobs_view(method, input_, user, **kwargs):
+    """ List available time-series.
     """
-    response = []
-    for obj in get_jobs(user):
-        item = {
-            "identifier": obj.identifier,
-            "read_only": obj.owner != user,
-            "status": JOB_STATUS_DICT[obj.status],
-        }
-        if obj.name:
-            item['name'] = obj.name
-        if obj.description:
-            item['description'] = obj.description
-        response.append(item)
-    return 200, response
+    if method == "POST": # new object to be created
+        return 200, job_serialize(create_job(input_, user), user)
+
+    return 200, [job_serialize(obj, user) for obj in get_jobs(user)]
+
+#@method_allow_conditional(['GET', 'POST', 'DELETE'], ['GET'], is_job_owned)
+
+
+@error_handler
+@authorisation
+@method_allow_conditional(['GET', 'DELETE'], ['GET'], is_job_owned)
+@rest_json(JSON_OPTS)
+def job_item_view(method, input_, user, identifier, **kwargs):
+    """ Single job item view.
+    """
+    try:
+        obj = get_jobs(user).get(identifier=identifier)
+    except ObjectDoesNotExist:
+        raise HttpError(404, "Not found")
+
+    if method == "DELETE":
+        if obj.owner != user:
+            raise HttpError(405, "Method not allowed\nRead-only job!")
+        # TODO: reliable job termination
+        # block removal of the accepted and in-progress jobs
+        if obj.status in (Job.ACCEPTED, Job.IN_PROGRESS):
+            raise HttpError(
+                405, "Method not allowed\nCannot remove a running job!"
+            )
+        # TODO: de-register results
+        # purge WPS process resources
+        if obj.wps_job_id:
+            get_wps_async_backend().purge(obj.wps_job_id)
+        obj.delete()
+        return 204, None
+
+    return 200, job_serialize(obj, user)

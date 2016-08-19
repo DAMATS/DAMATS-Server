@@ -31,9 +31,26 @@ import json
 import sys
 import ipaddr
 import traceback
+from datetime import datetime
 from functools import wraps
 from django.http import HttpResponse
 from django.conf import settings
+
+
+def pack_datetime(obj):
+    """ Convert all datetime objects in dictionary into ISO-8601 date-time
+    strings.
+    """
+    if isinstance(obj, datetime):
+        #if obj.tzinfo and not obj.utcoffset():
+        if not obj.utcoffset():
+            return obj.replace(tzinfo=None).isoformat("T") + "Z"
+        return obj.isoformat("T")
+    elif not isinstance(obj, dict):
+        return obj
+    else:
+        return dict((key, pack_datetime(val)) for key, val in obj.iteritems())
+
 
 class HttpError(Exception):
     """ Simple HTTP error exception """

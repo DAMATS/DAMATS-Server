@@ -162,14 +162,16 @@ class Process(models.Model):
 class Job(models.Model):
     """ DAMATS Processing Job
     """
-    CREATED = 'C'
-    IN_PROGRESS = 'P'
-    FINISHED = 'S'
-    ABORTED = 'A'
-    FAILED = 'F'
+    CREATED = 'C'           # Created
+    ACCEPTED = 'E'          # Enqueued
+    IN_PROGRESS = 'R'       # Running
+    FINISHED = 'S'          # Success
+    ABORTED = 'A'           # Aborted
+    FAILED = 'F'            # Failed
 
     STATUS_CHOICES = (
         (CREATED, "CREATED"),
+        (ACCEPTED, "ACCEPTED"),
         (IN_PROGRESS, "IN_PROGRESS"),
         (FINISHED, "FINISHED"),
         (ABORTED, "ABORTED"),
@@ -189,9 +191,12 @@ class Job(models.Model):
     status = models.CharField(
         max_length=1, choices=STATUS_CHOICES, default=CREATED
     )
+    time_series = models.ForeignKey(TimeSeries, related_name='jobs')
     process = models.ForeignKey(Process, related_name='jobs')
     inputs = models.TextField(null=True, blank=True) # processing inputs
     outputs = models.TextField(null=True, blank=True) # processing outputs
+    wps_job_id = models.CharField(max_length=256, null=True, blank=True)
+    wps_response_url = models.CharField(max_length=512, null=True, blank=True)
 
     class Meta:
         verbose_name = "DAMATS Process Job"

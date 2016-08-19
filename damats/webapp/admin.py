@@ -250,15 +250,19 @@ class JobAdmin(admin.ModelAdmin):
         'process',
         'inputs',
         'outputs',
+        'wps_job_id',
+        'wps_response_url',
         #'results',
     )
 
     filter_horizontal = ['readers']
-    search_fields = ['name', 'identifier']
+    search_fields = ['name', 'identifier', 'wps_job_id']
 
     def get_readonly_fields(self, request, obj=None):
         read_only_fields = ['created', 'updated', 'status']
-        constant_fields = ['identifier', 'process']
+        constant_fields = [
+            'identifier', 'process', 'wps_job_id', 'wps_response_url',
+        ]
         # constant fields are changed only when creating new object
         if obj: # modifying an existing object
             return read_only_fields + constant_fields

@@ -27,9 +27,10 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 #-------------------------------------------------------------------------------
+# pylint: disable=too-few-public-methods
 
 from datetime import datetime
-import _strptime # DO NOT REMOVE!
+import _strptime # DO NOT REMOVE! #pylint: disable=unused-import
 
 def _parse(parsers, value):
     """ Parse value using single (one object) or multiple parsers
@@ -105,6 +106,15 @@ class DateTime(object):
             return datetime.strptime(value, "%Y-%m-%dT%H:%M:%S.%fZ")
 
 
+        return value
+
+class AnyObject(object):
+    """ Pass an unparsed object. """
+    @staticmethod
+    def parse(value):
+        """ Parse any (dict) object. """
+        if not isinstance(value, dict):
+            raise ValueError("An object (dictionary) expected!")
         return value
 
 class Array(object):
