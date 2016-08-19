@@ -30,6 +30,8 @@
 
 import json
 import uuid
+from contextlib import closing
+from lxml import etree
 from django.db.models import Q
 from django.core.exceptions import ObjectDoesNotExist
 from eoxserver.core import env, Component, ExtensionPoint
@@ -54,6 +56,7 @@ from damats.webapp.views_time_series import get_time_series
 
 JOB_STATUS_DICT = dict(Job.STATUS_CHOICES)
 SITS_PROCESSOR_PROFILE = "DAMATS-SITS-processor"
+XML_PARSER = etree.XMLParser(remove_blank_text=True)
 
 #-------------------------------------------------------------------------------
 
@@ -242,8 +245,48 @@ def process_serialize(obj, extras=None):
     return response
 
 
+
+def get_wps_status(wps_job_id):
+    """ Get status details of a asynchronous WPS process. """
+    try:
+        with closing(get_wps_async_backend().get_response(wps_job_id)) as fobj:
+            xml = etree.parse(fobj, parser=XML_PARSER)
+
+        status_elm = xml.find("{http://www.opengis.net/wps/1.0.0}Status")
+        status_subelm = status_elm[0]
+        status_tag = status_subelm.tag.split("}")[-1]
+
+        status = {
+            "creation_time": status_elm.get('creationTime'),
+            "status": status_tag,
+            "message": status_elm[0].text,
+        }
+
+        if status_subelm.get('percentCompleted') is not None:
+            status['percent_completed'] = int(
+                status_subelm.get('percentCompleted')
+            )
+
+        if status_tag == 'ProcessFailed':
+            exception_elm = status_elm.find(
+                ".//{http://www.opengis.net/ows/1.1}Exception"
+            )
+            status.update({
+                'locator': exception_elm.get('locator'),
+                'code': exception_elm.get('exceptionCode'),
+                'message': exception_elm.find(
+                    "{http://www.opengis.net/ows/1.1}ExceptionText"
+                ).text,
+            })
+        return status
+    except Exception as exc:
+        return "Error: %s: %s" % (type(exc).__name__, exc)
+
+
 def job_serialize(obj, user, extras=None):
     response = dict(extras) if extras else {}
+
+
     response.update({
         "identifier": obj.identifier,
         "read_only": obj.owner != user,
@@ -255,7 +298,9 @@ def job_serialize(obj, user, extras=None):
         "time_series": obj.time_series.eoobj.identifier,
         "wps_job_id": obj.wps_job_id,
         "wps_response_url": obj.wps_response_url,
+        "wps_status": get_wps_status(obj.wps_job_id) if obj.wps_job_id else None
     })
+
     if obj.name:
         response['name'] = obj.name
     if obj.description:
