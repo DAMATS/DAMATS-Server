@@ -60,12 +60,18 @@ XML_PARSER = etree.XMLParser(remove_blank_text=True)
 
 #-------------------------------------------------------------------------------
 
-JOB_PARSER = Object((
+JOB_PARSER_POST = Object((
     ('process', String, True),
     ('time_series', String, True),
-    ('inputs', (AnyObject, Null), False, {}),
+    ('inputs', AnyObject, False, {}),
     ('name', (String, Null), False, None),
     ('description', (String, Null), False, None),
+))
+
+JOB_PARSER_PUT = Object((
+    ('name', (String, Null)),
+    ('description', (String, Null)),
+    ('inputs', AnyObject),
 ))
 
 #-------------------------------------------------------------------------------
@@ -286,10 +292,10 @@ def get_wps_status(wps_job_id):
 def job_serialize(obj, user, extras=None):
     response = dict(extras) if extras else {}
 
-
     response.update({
         "identifier": obj.identifier,
-        "read_only": obj.owner != user,
+        "editable": obj.owner == user,
+        "owned": obj.owner == user,
         "status": JOB_STATUS_DICT[obj.status],
         "created": pack_datetime(obj.created),
         "updated": pack_datetime(obj.updated),
@@ -327,22 +333,22 @@ def processes_view(method, input_, user, **kwargs):
 @error_handler
 @authorisation
 @method_allow(['GET', 'POST'])
-@rest_json(JSON_OPTS, JOB_PARSER)
+@rest_json(JSON_OPTS, JOB_PARSER_POST)
 def jobs_view(method, input_, user, **kwargs):
     """ List available time-series.
     """
     if method == "POST": # new object to be created
         return 200, job_serialize(create_job(input_, user), user)
 
-    return 200, [job_serialize(obj, user) for obj in get_jobs(user)]
-
-#@method_allow_conditional(['GET', 'POST', 'DELETE'], ['GET'], is_job_owned)
+    return 200, [
+        job_serialize(obj, user) for obj in get_jobs(user).order_by('-created')
+    ]
 
 
 @error_handler
 @authorisation
-@method_allow_conditional(['GET', 'DELETE'], ['GET'], is_job_owned)
-@rest_json(JSON_OPTS)
+@method_allow_conditional(['GET', 'PUT', 'DELETE'], ['GET'], is_job_owned)
+@rest_json(JSON_OPTS, JOB_PARSER_PUT)
 def job_item_view(method, input_, user, identifier, **kwargs):
     """ Single job item view.
     """
@@ -366,5 +372,19 @@ def job_item_view(method, input_, user, identifier, **kwargs):
             get_wps_async_backend().purge(obj.wps_job_id)
         obj.delete()
         return 204, None
+
+    elif method == "PUT":
+        if obj.owner != user:
+            raise HttpError(405, "Method not allowed\nRead-only job!")
+        # update job
+        if input_.has_key("name"):
+            obj.name = input_["name"] or None
+        if input_.has_key("description"):
+            obj.description = input_["description"] or None
+        if input_.has_key("inputs") and obj.status == Job.CREATED:
+            # NOTE: Once the Job is submitted for execution the inputs cannot
+            #       be changed.
+            obj.inputs = json.dumps(pack_datetime(input_['inputs']))
+        obj.save()
 
     return 200, job_serialize(obj, user)

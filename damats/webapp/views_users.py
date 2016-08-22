@@ -38,7 +38,7 @@ from damats.webapp.views_common import authorisation, JSON_OPTS
 #-------------------------------------------------------------------------------
 # Input parsers
 
-USER_PARSER = Object((
+USER_PARSER_PUT = Object((
     ('name', (String, Null)),
     ('description', (String, Null)),
 ))
@@ -75,16 +75,16 @@ def group_serialize(obj, extras=None):
 
 @error_handler
 @authorisation
-@method_allow(['GET', 'POST', 'PUT'])
-@rest_json(JSON_OPTS, USER_PARSER)
+@method_allow(['GET', 'PUT'])
+@rest_json(JSON_OPTS, USER_PARSER_PUT)
 def user_view(method, input_, user, **kwargs):
     """ User profile interface.
     """
-    if method in ("POST", "PUT"): # update
+    if method == "PUT": # update
         if input_.has_key("name"):
-            user.name = input_.get("name", None) or None
+            user.name = input_["name"] or None
         if input_.has_key("description"):
-            user.description = input_.get("description", None) or None
+            user.description = input_["description"] or None
         user.save()
 
     return 200, user_serialize(user)

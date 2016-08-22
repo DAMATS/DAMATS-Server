@@ -200,7 +200,11 @@ def rest_json(json_options=None, validation_parser=None, defauts=None):
                 if request.body:
                     obj_input = json.loads(request.body)
                     if validation_parser:
-                        obj_input = validation_parser.parse(obj_input)
+                        if isinstance(validation_parser, dict):
+                            _parser = validation_parser[request.method]
+                        else:
+                            _parser = validation_parser
+                        obj_input = _parser.parse(obj_input)
                     if defaults: # fill the defaults
                         tmp = dict(defaults)
                         tmp.update(obj_input)

@@ -68,7 +68,7 @@ SELECTION_PARSER = Object((
     ))),
 ))
 
-SITS_PARSER = Object((
+SITS_PARSER_POST = Object((
     ('source', String, True),
     ('editable', Bool, False, True),
     ('name', (String, Null), False, None),
@@ -85,6 +85,12 @@ SITS_PARSER = Object((
             ('end', DateTime, True),
         )), True),
     )), True),
+))
+
+SITS_PARSER_PUT = Object((
+    ('editable', Bool),
+    ('name', (String, Null)),
+    ('description', (String, Null)),
 ))
 
 COVERAGE_PARSER_POST = Object((
@@ -247,6 +253,8 @@ def time_series_serialize(obj, user, extras=None):
             obj.editable and obj.owner == user and not obj.jobs.exists()
         ),
         "owned": obj.owner == user,
+        "created": pack_datetime(obj.created),
+        "updated": pack_datetime(obj.updated),
         "selection": json.loads(obj.selection or '{}'),
         "common_intersection_area": extract_coordinates(common),
         "selected_area": extract_coordinates(selected),
@@ -382,7 +390,7 @@ def sources_coverage_view(method, input_, user, identifier, coverage, **kwargs):
 @error_handler
 @authorisation
 @method_allow(['GET', 'POST'])
-@rest_json(JSON_OPTS, SITS_PARSER)
+@rest_json(JSON_OPTS, SITS_PARSER_POST)
 def time_series_view(method, input_, user, **kwargs):
     """ List available time-series.
     """
@@ -392,13 +400,15 @@ def time_series_view(method, input_, user, **kwargs):
     # otherwise list existing objects
     return 200, [
         time_series_serialize(obj, user)
-        for obj in get_time_series(user).order_by('created')
+        for obj in get_time_series(user).order_by('-created')
     ]
 
 @error_handler
 @authorisation
-@method_allow_conditional(['GET', 'POST', 'DELETE'], ['GET'], is_time_series_owned)
-@rest_json(JSON_OPTS, COVERAGE_PARSER_POST)
+@method_allow_conditional(
+    ['GET', 'POST', 'PUT', 'DELETE'], ['GET'], is_time_series_owned
+)
+@rest_json(JSON_OPTS, {'PUT': SITS_PARSER_PUT, 'POST': COVERAGE_PARSER_POST})
 def time_series_item_view(method, input_, user, identifier, **kwargs):
     """ List items of the requested time series.
     """
@@ -417,6 +427,19 @@ def time_series_item_view(method, input_, user, identifier, **kwargs):
             eoobj.delete()
         return 204, None
 
+    elif method == "PUT":
+        if obj.owner != user:
+            raise HttpError(405, "Method not allowed\nRead-only time-series!")
+        # update time-series
+        if input_.has_key("editable"):
+            obj.editable = input_["editable"]
+        if input_.has_key("name"):
+            obj.name = input_["name"] or None
+        if input_.has_key("description"):
+            obj.description = input_["description"] or None
+        obj.save()
+        return 200, time_series_serialize(obj, user)
+
     elif method == "POST":
         if not obj.editable or obj.owner != user or obj.jobs.exists():
             raise HttpError(405, "Method not allowed\nRead-only time-series!")
@@ -430,6 +453,7 @@ def time_series_item_view(method, input_, user, identifier, **kwargs):
             # no record found - linking cannot be done
             raise HttpError(422, "Unprocessable Entity")
         obj.eoobj.insert(cov)
+        obj.save() # update time-stamp
         return 201, coverage_serialize(cov)
 
 
@@ -502,6 +526,7 @@ def time_series_coverage_view(method, input_, user, identifier, coverage,
             raise HttpError(405, "Method not allowed\nRead-only time-series!")
         # unlink coverage from a collection
         obj.eoobj.remove(cov)
+        obj.save() # update time-stamp
         return 204, None
 
     if method == "PUT":
@@ -513,6 +538,7 @@ def time_series_coverage_view(method, input_, user, identifier, coverage,
             obj.eoobj.insert(cov)
         elif not input_['in'] and exists:
             obj.eoobj.remove(cov)
+        obj.save() # update time-stamp
         return 200, coverage_serialize_extra(cov, [('in', input_['in'])])
 
     return 200, coverage_serialize(cov)
