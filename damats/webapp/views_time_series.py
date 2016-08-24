@@ -70,6 +70,7 @@ SELECTION_PARSER = Object((
 
 SITS_PARSER_POST = Object((
     ('source', String, True),
+    ('template', (String, Null), False, None), # optional id of a cloned SITS
     ('editable', Bool, False, True),
     ('name', (String, Null), False, None),
     ('description', (String, Null), False, None),
@@ -298,10 +299,21 @@ def create_time_series(input_, user):
     # First check the source.
     try:
         source = get_sources(user).get(
-            eoobj__identifier=input_.get('source', None)
+            eoobj__identifier=input_.get('source')
         )
     except ObjectDoesNotExist:
         raise HttpError(400, "Bad Request")
+
+    # check the cloned template
+    if input_.get('template'):
+        try:
+            template = get_time_series(user).get(
+                eoobj__identifier=input_.get('template')
+            )
+        except ObjectDoesNotExist:
+            raise HttpError(400, "Bad Request")
+    else:
+        template = source
 
     # Create a new object.
     obj = TimeSeries()
@@ -332,7 +344,7 @@ def create_time_series(input_, user):
     )
     bbox_geom = Polygon.from_bbox(bbox)
 
-    coverages = get_coverages(source.eoobj).filter(
+    coverages = get_coverages(template.eoobj).filter(
         begin_time__lte=toi['end'], end_time__gte=toi['start'],
         footprint__contains=bbox_geom,
         #footprint__intersects=bbox_geom,
