@@ -29,10 +29,10 @@
 
 import json
 import sys
-import ipaddr
 import traceback
 from datetime import datetime
 from functools import wraps
+from ipaddr import IPAddress, IPNetwork
 from django.http import HttpResponse
 from django.conf import settings
 
@@ -86,24 +86,33 @@ def error_handler(view):
     return _wrapper_
 
 
-def method_allow(allowed_methods, handle_options=True):
+def method_allow(allowed_methods, allowed_headers=None, handle_options=True):
     """ Reject non-supported HTTP methods.
     By default the OPTIONS method is handled responding with
-    the list of the supported methods.
+    the list of the supported methods and headers.
     """
-    allowed_methods = tuple(allowed_methods)
+    allowed_methods = set(allowed_methods)
+    allowed_headers = list(allowed_headers or ["Content-Type"])
+    if handle_options:
+        allowed_methods.add('OPTIONS')
+
     def _wrap_(view):
         @wraps(view)
         def _wrapper_(request, *args, **kwargs):
             if handle_options and request.method == "OPTIONS":
                 response = HttpResponse("")
-                response['Allow'] = ", ".join(("OPTIONS",) + allowed_methods)
+                response['Access-Control-Allow-Methods'] = ", ".join(
+                    allowed_methods
+                )
+                response['Access-Control-Allow-Headers'] = ", ".join(
+                    allowed_headers
+                )
+
             elif request.method not in allowed_methods:
                 response = HttpResponse(
                     "Method not allowed", content_type="text/plain", status=405
                 )
-                response['Allow'] = ", ".join(("OPTIONS",) + allowed_methods)
-                return response
+                response['Allow'] = ", ".join(allowed_methods)
             else:
                 response = view(request, *args, **kwargs)
             return response
@@ -112,15 +121,20 @@ def method_allow(allowed_methods, handle_options=True):
 
 
 def method_allow_conditional(allowed_methods_true, allowed_methods_false,
-                             condition, handle_options=True):
+                             condition, allowed_headers=None,
+                             handle_options=True):
     """ Reject non-supported HTTP methods.
     The list of the supported options is conditional based on the response
     of the is_read_only method.
     By default the OPTIONS method is handled responding with
-    the list of the supported methods.
+    the list of the supported methods and headers.
     """
-    allowed_methods_true = tuple(allowed_methods_true)
-    allowed_methods_false = tuple(allowed_methods_false)
+    allowed_methods_true = set(allowed_methods_true)
+    allowed_methods_false = set(allowed_methods_false)
+    allowed_headers = list(allowed_headers or ["Content-Type"])
+    if handle_options:
+        allowed_methods_true.add('OPTIONS')
+        allowed_methods_false.add('OPTIONS')
     def _wrap_(view):
         @wraps(view)
         def _wrapper_(request, *args, **kwargs):
@@ -130,13 +144,17 @@ def method_allow_conditional(allowed_methods_true, allowed_methods_false,
                 allowed_methods = allowed_methods_false
             if handle_options and request.method == "OPTIONS":
                 response = HttpResponse("")
-                response['Allow'] = ", ".join(("OPTIONS",) + allowed_methods)
+                response['Access-Control-Allow-Methods'] = ", ".join(
+                    allowed_methods
+                )
+                response['Access-Control-Allow-Headers'] = ", ".join(
+                    allowed_headers
+                )
             elif request.method not in allowed_methods:
                 response = HttpResponse(
                     "Method not allowed", content_type="text/plain", status=405
                 )
-                response['Allow'] = ", ".join(("OPTIONS",) + allowed_methods)
-                return response
+                response['Allow'] = ", ".join(allowed_methods)
             else:
                 response = view(request, *args, **kwargs)
             return response
@@ -150,9 +168,9 @@ def ip_deny(ip_list):
         @wraps(view)
         def _wrapper_(request, *args, **kwargs):
             # get request source address and compare it with the forbiden ones
-            ip_src = ipaddr.IPAddress(request.META['REMOTE_ADDR'])
+            ip_src = IPAddress(request.META['REMOTE_ADDR'])
             for ip_ in ip_list:
-                if ip_src in ipaddr.IPNetwork(ip_):
+                if ip_src in IPNetwork(ip_):
                     raise HttpError(403, "Forbiden!")
             return view(request, *args, **kwargs)
         return _wrapper_
@@ -165,9 +183,9 @@ def ip_allow(ip_list):
         @wraps(view)
         def _wrapper_(request, *args, **kwargs):
             # get request source address and compare it with the allowed ones
-            ip_src = ipaddr.IPAddress(request.META['REMOTE_ADDR'])
+            ip_src = IPAddress(request.META['REMOTE_ADDR'])
             for ip_ in ip_list:
-                if ip_src in ipaddr.IPNetwork(ip_):
+                if ip_src in IPNetwork(ip_):
                     break
             else:
                 raise HttpError(403, "Forbiden!")
