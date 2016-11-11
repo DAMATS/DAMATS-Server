@@ -216,6 +216,8 @@ def input_serialize(idef, extras=None):
         'identifier': idef.identifier,
         'type': idef.dtype.name,
     })
+    response['is_optional'] = idef.is_optional
+    response['default_value'] = idef.default
     # optional metadata
     if idef.title:
         response['name'] = idef.title
@@ -243,7 +245,10 @@ def process_serialize(obj, extras=None):
     """ Serialize process object. """
     response = dict(extras) if extras else {}
     response["identifier"] = obj.identifier
-    response["inputs"] = [input_serialize(idef) for idef in obj.inputs]
+    response["inputs"] = [
+        input_serialize(idef) for idef in obj.inputs
+        if idef.identifier != 'sits' # only the process specific inputs
+    ]
     if obj.name:
         response['name'] = obj.name
     if obj.description:
