@@ -56,33 +56,30 @@ class ProcessLDA(SITSProcessor):
         ("nclasses", LiteralData(
             'nclasses', int, optional=True, default=10,
             allowed_values=AllowedRange(2, 64, dtype=int),
-            title="number of classes",
-            abstract="Optional number of classes parameter.",
+            title="Number of Classes",
         )),
         ("nclusters", LiteralData(
             'nclusters', int, optional=True, default=100,
             allowed_values=AllowedRange(100, 200, dtype=int),
-            title="number of clusters",
-            abstract="Optional number of clusters parameter.",
+            title="Number of Clusters",
         )),
         ("patch_size", LiteralData(
             'patch_size', int, optional=True, default=20,
             allowed_values=(20, 50, 100),
-            title="patch size",
-            abstract="Optional patch size parameter.",
+            title="Patch Size",
         )),
         ("scaling_factor", LiteralData(
             'scaling_factor', float, optional=True, default=1.0,
             allowed_values=AllowedRange(0.0, 1.0, 'open-closed', dtype=float),
-            title="Image scaling factor.",
-            abstract="This parameter defines the image downscaling factor."
+            title="Image Scaling Factor",
+            abstract="Image downscaling factor. Set to 1 for full resolution."
         )),
         ("interp_method", LiteralData(
             'interp_method', str, optional=True,
             default='nearest-neighbour', allowed_values=(
-                'average', 'nearest-neighbour', 'bilinear',
+                'nearest-neighbour', 'average', 'bilinear',
                 'cubic', 'cubic-spline', 'lanczos', 'mode',
-            ), title="Interpolation method.",
+            ), title="Interpolation Method",
             abstract="Interpolation method used by the image re-sampling."
         )),
     ]
