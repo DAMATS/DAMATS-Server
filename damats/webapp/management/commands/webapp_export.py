@@ -1,6 +1,6 @@
 #-------------------------------------------------------------------------------
 #
-#  DAMATS web app - dumping the object DB
+#  DAMATS web app - export the DB objects to JSON
 #
 # Project: EOxServer <http://eoxserver.org>
 # Authors: Martin Paces <martin.paces@eox.at>
@@ -36,6 +36,7 @@ from django.core.management.base import CommandError, BaseCommand
 from eoxserver.resources.coverages.management.commands import (
     CommandOutputMixIn,
 )
+from eoxserver.resources.coverages.models import Coverage
 from damats.webapp.models import (
     User, Group, Process, SourceSeries, TimeSeries, Job,
 )
@@ -48,7 +49,7 @@ JSON_OPTS = {
 
 class Command(CommandOutputMixIn, BaseCommand):
     help = (
-        "Dump the DAMATS webapp model in JSON format. "
+        "Export the DAMATS webapp model in JSON format. "
     )
     args = "[<model-entity> ...]"
     option_list = BaseCommand.option_list + (
@@ -56,7 +57,7 @@ class Command(CommandOutputMixIn, BaseCommand):
             "-o", "--output", dest="output", default=None,
             help=(
                 "Optional output filename. If not provided the output is "
-                "dumped to the standard output."
+                "exported to the standard output."
             )
         ),
     )
@@ -118,9 +119,9 @@ def get_sits():
     return [
         time_series_serialize(item)
         for item in (
-            TimeSeries.objects
-            .select_related('eoobj', 'owner', 'source', 'source__eoobj')
-            .prefetch_related('readers')
+            TimeSeries.objects.select_related(
+                'eoobj', 'owner', 'source', 'source__eoobj'
+            ).prefetch_related('readers')
         )
     ]
 
@@ -130,9 +131,9 @@ def get_jobs():
     return [
         jobs_serialize(item)
         for item in (
-            Job.objects
-            .select_related('time_series', 'process', 'owner')
-            .prefetch_related('readers')
+            Job.objects.select_related(
+                'owner', 'process', 'time_series', 'time_series__eoobj'
+            ).prefetch_related('readers')
         )
     ]
 
@@ -178,16 +179,14 @@ def time_series_serialize(obj, extras=None):
         "identifier": obj.eoobj.identifier,
         "name": obj.name or None,
         "description": obj.description or None,
-        "editable": obj.editable,
         "owner": obj.owner.identifier,
         "readers": list(obj.readers.values_list('identifier', flat=True)),
         "created": pack_datetime(obj.created),
         "updated": pack_datetime(obj.updated),
+        "editable": obj.editable,
         "source": obj.source.eoobj.identifier,
         "selection": json.loads(obj.selection or '{}'),
-        "content": list(
-            obj.eoobj.cast().eo_objects.values_list('identifier', flat=True)
-        ),
+        "content": get_coverages_ids(obj.eoobj),
     })
     return response
 
@@ -199,13 +198,34 @@ def jobs_serialize(obj, extras=None):
         "identifier": obj.identifier,
         "name": obj.name or None,
         "description": obj.description or None,
-        "editable": obj.editable,
         "owner": obj.owner.identifier,
         "readers": list(obj.readers.values_list('identifier', flat=True)),
         "created": pack_datetime(obj.created),
         "updated": pack_datetime(obj.updated),
-        "sits": obj.time_series.identifier,
+        "sits": obj.time_series.eoobj.identifier,
         "process": obj.process.identifier,
         "inputs": json.loads(obj.inputs or '{}'),
     })
     return response
+
+
+def get_coverages_ids(eoobj):
+    """ Get a list of ids of all Coverage objects held by given DatastSeries
+    object.
+    """
+    def _get_children_ids(eoobj):
+        """ recursive dataset series lookup """
+        qset = (
+            eoobj.cast().eo_objects
+            .filter(real_content_type=eoobj.real_content_type)
+        )
+        id_list = [eoobj.id]
+        for child_eoobj in qset:
+            id_list.extend(_get_children_ids(child_eoobj))
+        return id_list
+
+    return list(
+        Coverage.objects
+        .filter(collections__id__in=_get_children_ids(eoobj))
+        .values_list('identifier', flat=True)
+    )
