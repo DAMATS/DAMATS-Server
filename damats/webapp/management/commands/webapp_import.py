@@ -131,7 +131,11 @@ def set_source(data):
     try:
         new, obj = False, SourceSeries.objects.get(eoobj__identifier=identifier)
     except SourceSeries.DoesNotExist:
-        eoobj = DatasetSeries.objects.get(identifier=identifier)
+        try:
+            eoobj = DatasetSeries.objects.get(identifier=identifier)
+        except DatasetSeries.DoesNotExist:
+            eoobj = DatasetSeries(identifier=identifier)
+            eoobj.save()
         new, obj = True, SourceSeries(eoobj=eoobj)
     set_name_and_description(obj, data)
     obj.save()
@@ -226,6 +230,7 @@ def set_sits_content(obj, data):
             obj.eoobj.remove(coverage)
         for coverage in get_coverages(new_covs - old_covs):
             obj.eoobj.insert(coverage)
+    return obj
 
 
 def get_groups(ids):
