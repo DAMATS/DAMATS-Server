@@ -247,6 +247,7 @@ class JobAdmin(admin.ModelAdmin):
         'created',
         'updated',
         'readers',
+        'time_series',
         'process',
         'inputs',
         'outputs',
@@ -261,7 +262,8 @@ class JobAdmin(admin.ModelAdmin):
     def get_readonly_fields(self, request, obj=None):
         read_only_fields = ['created', 'updated', 'status']
         constant_fields = [
-            'identifier', 'process', 'wps_job_id', 'wps_response_url',
+            'identifier', 'time_series', 'process', 'wps_job_id',
+            'wps_response_url',
         ]
         # constant fields are changed only when creating new object
         if obj: # modifying an existing object
