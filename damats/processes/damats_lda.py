@@ -32,7 +32,9 @@
 import json
 import sys
 from numpy import seterr
-from eoxserver.services.ows.wps.parameters import LiteralData, AllowedRange
+from eoxserver.services.ows.wps.parameters import (
+    LiteralData, ComplexData, AllowedRange, Reference, FormatBinaryRaw,
+)
 from damats.processes.sits_processor import SITSProcessor
 from damats.webapp.views_time_series import get_coverages, SELECTION_PARSER
 from damats.processes.utils import download_coverages
@@ -85,11 +87,15 @@ class ProcessLDA(SITSProcessor):
     ]
 
     outputs = [
-        ("debug_output", str), # to be removed
+        ("output_indices", ComplexData(
+            'indices', title="Class Indices (Tiff Image)", abstract=(
+                "An image containing indices of the calculated change classes."
+            ), formats=(FormatBinaryRaw('image/tiff'))
+        )),
     ]
 
     def process_sits(self, sits, nclasses, nclusters, patch_size,
-                     scaling_factor, interp_method, context, **kwargs):
+                     scaling_factor, interp_method, context, **options):
         # parse selection
         selection = SELECTION_PARSER.parse(
             json.loads(sits.selection or '{}')
@@ -114,7 +120,6 @@ class ProcessLDA(SITSProcessor):
 
         filename = "%s_lda.tif" % context.identifier
 
-
         # detect various floating-point errors and always throw an exception
         numpy_error_settings = seterr(divide='raise', invalid='raise')
         try:
@@ -130,4 +135,8 @@ class ProcessLDA(SITSProcessor):
 
         filename, url = context.publish(filename)
 
-        return str((filename, url))
+        return {
+            "output_indices": Reference(
+                filename, url, **options["output_indices"]
+            ),
+        }

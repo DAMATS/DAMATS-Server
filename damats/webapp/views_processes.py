@@ -31,7 +31,7 @@
 import json
 import uuid
 from contextlib import closing
-from lxml import etree
+from lxml.etree import parse, XMLParser
 from django.db.models import Q
 from django.core.exceptions import ObjectDoesNotExist
 from eoxserver.core import env, Component, ExtensionPoint
@@ -56,7 +56,21 @@ from damats.webapp.views_time_series import get_time_series
 
 JOB_STATUS_DICT = dict(Job.STATUS_CHOICES)
 SITS_PROCESSOR_PROFILE = "DAMATS-SITS-processor"
-XML_PARSER = etree.XMLParser(remove_blank_text=True)
+XML_PARSER = XMLParser(remove_blank_text=True)
+
+WPS10_NS = "http://www.opengis.net/wps/1.0.0"
+OWS11_NS = "http://www.opengis.net/ows/1.1"
+WPS10_STATUS = "{%s}Status" % WPS10_NS
+WPS10_PROCESS_OUTPUTS = "{%s}ProcessOutputs" % WPS10_NS
+WPS10_OUTPUT = "{%s}Output" % WPS10_NS
+WPS10_REFERENCE = "{%s}Reference" % WPS10_NS
+WPS10_DATA = "{%s}Data" % WPS10_NS
+WPS10_LITERAL_DATA = "{%s}LiteralData" % WPS10_NS
+OWS11_IDENTIFIER = "{%s}Identifier" % OWS11_NS
+OWS11_TITLE = "{%s}Title" % OWS11_NS
+OWS11_ABSTRACT = "{%s}Abstract" % OWS11_NS
+OWS11_EXCEPTION = "{%s}Exception" % OWS11_NS
+OWS11_EXCEPTIONTEXT = "{%s}ExceptionText" % OWS11_NS
 
 #-------------------------------------------------------------------------------
 
@@ -256,46 +270,84 @@ def process_serialize(obj, extras=None):
     return response
 
 
-
-def get_wps_status(wps_job_id):
+def parse_wps_execute_response(wps_job_id):
     """ Get status details of a asynchronous WPS process. """
-    try:
-        with closing(get_wps_async_backend().get_response(wps_job_id)) as fobj:
-            xml = etree.parse(fobj, parser=XML_PARSER)
 
-        status_elm = xml.find("{http://www.opengis.net/wps/1.0.0}Status")
-        status_subelm = status_elm[0]
-        status_tag = status_subelm.tag.split("}")[-1]
+    def _text(elm):
+        return None if elm is None else elm.text
 
-        status = {
-            "creation_time": status_elm.get('creationTime'),
-            "status": status_tag,
-            "message": status_elm[0].text,
+    def _reference(elm):
+        if elm is None:
+            reference = None
+        else:
+            reference = {'url': elm.get('href')}
+            mime_type = elm.get('mimeType')
+            if mime_type:
+                reference['mime_type'] = mime_type
+        return reference
+
+    def _literal(elm):
+        return None if elm is None else {
+            'value': elm.text,
+            'type': elm.get('dataType', 'string'),
         }
 
-        if status_subelm.get('percentCompleted') is not None:
-            status['percent_completed'] = int(
-                status_subelm.get('percentCompleted')
-            )
+    with closing(get_wps_async_backend().get_response(wps_job_id)) as fobj:
+        xml = parse(fobj, parser=XML_PARSER)
 
-        if status_tag == 'ProcessFailed':
-            exception_elm = status_elm.find(
-                ".//{http://www.opengis.net/ows/1.1}Exception"
-            )
-            status.update({
-                'locator': exception_elm.get('locator'),
-                'code': exception_elm.get('exceptionCode'),
-                'message': exception_elm.find(
-                    "{http://www.opengis.net/ows/1.1}ExceptionText"
-                ).text,
-            })
-        return status
-    except Exception as exc:
-        return "Error: %s: %s" % (type(exc).__name__, exc)
+    status_elm = xml.find(WPS10_STATUS)
+    status_subelm = status_elm[0]
+    status_tag = status_subelm.tag.split("}")[-1]
+
+    status = {
+        "creation_time": status_elm.get('creationTime'),
+        "status": status_tag,
+        "message": status_subelm.text,
+    }
+
+    if status_subelm.get('percentCompleted') is not None:
+        status['percent_completed'] = int(
+            status_subelm.get('percentCompleted')
+        )
+
+    if status_tag == 'ProcessFailed':
+        exception_elm = status_elm.find(".//" + OWS11_EXCEPTION)
+
+        status.update({
+            'locator': exception_elm.get('locator'),
+            'code': exception_elm.get('exceptionCode'),
+            'message': _text(exception_elm.find(OWS11_EXCEPTIONTEXT)),
+        })
+
+    # NOTE: only Embedded Literals and Complex References are parsed.
+    if status_tag == 'ProcessSucceeded':
+        outputs = []
+        for elm in xml.findall("%s/%s" % (WPS10_PROCESS_OUTPUTS, WPS10_OUTPUT)):
+            outputs.append(dict(
+                (key, value) for key, value in [
+                    ("identifier", _text(elm.find(OWS11_IDENTIFIER))),
+                    ("name", _text(elm.find(OWS11_TITLE))),
+                    ("description", _text(elm.find(OWS11_ABSTRACT))),
+                    ("reference", _reference(elm.find(WPS10_REFERENCE))),
+                    ("literal", _literal(
+                        elm.find("%s/%s" % (WPS10_DATA, WPS10_LITERAL_DATA))
+                    )),
+                    # TODO: implement bounding box parsing if needed
+                ] if value is not None
+            ))
+    else:
+        outputs = None
+
+    return status, outputs
 
 
 def job_serialize(obj, user, extras=None):
     response = dict(extras) if extras else {}
+
+    if obj.wps_job_id:
+        wps_status, outputs = parse_wps_execute_response(obj.wps_job_id)
+    else:
+        wps_status, outputs = None, None
 
     response.update({
         "identifier": obj.identifier,
@@ -309,7 +361,8 @@ def job_serialize(obj, user, extras=None):
         "time_series": obj.time_series.eoobj.identifier,
         "wps_job_id": obj.wps_job_id,
         "wps_response_url": obj.wps_response_url,
-        "wps_status": get_wps_status(obj.wps_job_id) if obj.wps_job_id else None
+        "wps_status": wps_status,
+        "outputs": outputs,
     })
 
     if obj.name:

@@ -33,6 +33,7 @@ import json
 from cStringIO import StringIO
 from eoxserver.services.ows.wps.parameters import (
     LiteralData, ComplexData, AllowedRange, CDFileWrapper, FormatText,
+    Reference,
 )
 from damats.processes.sits_processor import SITSProcessor
 from damats.webapp.views_time_series import get_coverages, SELECTION_PARSER
@@ -52,7 +53,7 @@ class ExportSITS(SITSProcessor):
         ("scaling_factor", LiteralData(
             'scaling_factor', float, optional=True, default=1.0,
             allowed_values=AllowedRange(0.0, 1.0, 'open-closed', dtype=float),
-            title="Image scaling factor.",
+            title="Image Scaling Factor",
             abstract="This parameter defines the image downscaling factor."
         )),
         ("interp_method", LiteralData(
@@ -60,16 +61,16 @@ class ExportSITS(SITSProcessor):
             default='nearest-neighbour', allowed_values=(
                 'average', 'nearest-neighbour', 'bilinear',
                 'cubic', 'cubic-spline', 'lanczos', 'mode',
-            ), title="Interpolation method.",
+            ), title="Interpolation Method",
             abstract="Interpolation method used by the image re-sampling."
         )),
     ]
 
     outputs = [
         ("output", ComplexData(
-            'index', title="Index of the images.",
-            abstract="Tab separated index of the exported images.",
-            formats=(FormatText('text/tab-separated-values'))
+            'index', title="List of URLs",
+            abstract="Plain text URL list of the exported images.",
+            formats=(FormatText('text/plain'))
         )),
     ]
 
@@ -95,10 +96,22 @@ class ExportSITS(SITSProcessor):
         )
 
         # publish the image subsets
-        output_fobj = StringIO()
-        output_fobj.write("coverageIdentifier\tlocalFilename\tdownloadURL\r\n")
-        for coverage, image in zip(coverages, images):
-            filename, url = context.publish(image)
-            output_fobj.write("%s\t%s\t%s\r\n" % (coverage, filename, url))
+        #output_fobj = StringIO()
+        #output_fobj.write("coverageIdentifier\tlocalFilename\tdownloadURL\r\n")
+        #for coverage, image in zip(coverages, images):
+        #    filename, url = context.publish(image)
+        #    output_fobj.write("%s\t%s\t%s\r\n" % (coverage, filename, url))
+        #return CDFileWrapper(output_fobj, **output)
 
-        return CDFileWrapper(output_fobj, **output)
+        # save the manifest
+        manifest_filename = "manifest.txt"
+        with file(manifest_filename, "wb") as fobj:
+            for coverage, image in zip(coverages, images):
+                _, url = context.publish(image)
+                fobj.write("%s\r\n" % url)
+
+        # publish the manifest
+        manifest_filename, url = context.publish(manifest_filename)
+
+        context.logger.info("%s" % output)
+        return Reference(manifest_filename, url, **output)
