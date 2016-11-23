@@ -158,6 +158,7 @@ def get_jobs(user, owned=True, read_only=True):
     """
     id_list = [user.identifier] + [obj.identifier for obj in user.groups.all()]
     qset = Job.objects.select_related('owner')
+    qset = qset.prefetch_related('results', 'results__eoobj')
     if owned and read_only:
         qset = qset.filter(Q(owner=user) | Q(readers__identifier__in=id_list))
     elif owned:
@@ -349,6 +350,14 @@ def job_serialize(obj, user, extras=None):
     else:
         wps_status, outputs = None, None
 
+    coverages = {}
+    for result in obj.results.all():
+        coverages[result.identifier] = dict((key, val) for key, val in [
+            ("name", result.name),
+            ("description", result.description),
+            ("coverage_id", result.eoobj.identifier),
+        ] if val is not None)
+
     response.update({
         "identifier": obj.identifier,
         "editable": obj.owner == user,
@@ -363,6 +372,7 @@ def job_serialize(obj, user, extras=None):
         "wps_response_url": obj.wps_response_url,
         "wps_status": wps_status,
         "outputs": outputs,
+        "coverages": coverages,
     })
 
     if obj.name:

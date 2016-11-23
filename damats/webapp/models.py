@@ -31,20 +31,28 @@
 # pylint: disable=no-init
 # pylint: disable=missing-docstring
 
-from django.db import models
-from eoxserver.resources.coverages import models as coverages
+#from django.db import models
+from django.db.models import (
+    Model, BooleanField, CharField, TextField, DateTimeField,
+    OneToOneField, ForeignKey, ManyToManyField,
+)
+from django.db.models.signals import post_delete
+from django.dispatch import receiver
 #from django.core.validators import MaxValueValidator, MinValueValidator
+from eoxserver.resources.coverages.models import (
+    DatasetSeries, RectifiedDataset,
+)
 
 #-------------------------------------------------------------------------------
 # Users ans Groups
 
-class Entity(models.Model):
+class Entity(Model):
     """ Base model for Users and Group. """
-    identifier = models.CharField(
+    identifier = CharField(
         max_length=256, null=False, blank=False, unique=True
     )
-    name = models.CharField(max_length=256, null=True, blank=True)
-    description = models.TextField(null=True, blank=True)
+    name = CharField(max_length=256, null=True, blank=True)
+    description = TextField(null=True, blank=True)
 
     class Meta:
         verbose_name = "DAMATS User or Group"
@@ -66,8 +74,8 @@ class Group(Entity):
 
 class User(Entity):
     """ User model."""
-    active = models.BooleanField(default=True)
-    groups = models.ManyToManyField(Group, blank=True, related_name='users')
+    active = BooleanField(default=True)
+    groups = ManyToManyField(Group, blank=True, related_name='users')
 
     class Meta:
         verbose_name = "DAMATS User"
@@ -76,19 +84,19 @@ class User(Entity):
 #-------------------------------------------------------------------------------
 # Image Time Series
 
-class SourceSeries(models.Model):
+class SourceSeries(Model):
     """ DAMATS Source Image Series
     """
-    EOOBJ_CLASS = coverages.DatasetSeries
-    eoobj = models.OneToOneField(
+    EOOBJ_CLASS = DatasetSeries
+    eoobj = OneToOneField(
         EOOBJ_CLASS, related_name='damats_sources',
         verbose_name='Related Dataset Series'
     )
-    name = models.CharField(max_length=256, null=False, blank=False)
-    description = models.TextField(null=True, blank=True)
-    created = models.DateTimeField(auto_now_add=True)
-    updated = models.DateTimeField(auto_now=True)
-    readers = models.ManyToManyField(Entity, blank=True, related_name='sources')
+    name = CharField(max_length=256, null=False, blank=False)
+    description = TextField(null=True, blank=True)
+    created = DateTimeField(auto_now_add=True)
+    updated = DateTimeField(auto_now=True)
+    readers = ManyToManyField(Entity, blank=True, related_name='sources')
 
     class Meta:
         verbose_name = "DAMATS Source Image Series"
@@ -101,27 +109,27 @@ class SourceSeries(models.Model):
         return name
 
 
-class TimeSeries(models.Model):
+class TimeSeries(Model):
     """ DAMATS Image Time Series (aka SITS)
     """
-    EOOBJ_CLASS = coverages.DatasetSeries
-    eoobj = models.OneToOneField(
+    EOOBJ_CLASS = DatasetSeries
+    eoobj = OneToOneField(
         EOOBJ_CLASS, related_name='damats_time_series',
         verbose_name='Related Dataset Series'
     )
-    name = models.CharField(max_length=256, null=False, blank=False)
-    description = models.TextField(null=True, blank=True)
-    source = models.ForeignKey(SourceSeries, related_name='time_series')
-    selection = models.TextField(null=True, blank=True)
-    owner = models.ForeignKey(User, related_name='time_series')
-    editable = models.BooleanField(default=True)
+    name = CharField(max_length=256, null=False, blank=False)
+    description = TextField(null=True, blank=True)
+    source = ForeignKey(SourceSeries, related_name='time_series')
+    selection = TextField(null=True, blank=True)
+    owner = ForeignKey(User, related_name='time_series')
+    editable = BooleanField(default=True)
 
-    readers = models.ManyToManyField(
+    readers = ManyToManyField(
         Entity, blank=True, related_name='time_series_ro',
     )
 
-    created = models.DateTimeField(auto_now_add=True)
-    updated = models.DateTimeField(auto_now=True)
+    created = DateTimeField(auto_now_add=True)
+    updated = DateTimeField(auto_now=True)
 
     class Meta:
         verbose_name = "DAMATS Image Time Series"
@@ -136,15 +144,15 @@ class TimeSeries(models.Model):
 #-------------------------------------------------------------------------------
 # Jobs, Processes and Results
 
-class Process(models.Model):
+class Process(Model):
     """ DAMATS Process
     """
-    identifier = models.CharField(
+    identifier = CharField(
         max_length=512, null=False, blank=False, unique=True
     )
-    name = models.CharField(max_length=256, null=True, blank=True)
-    description = models.TextField(null=True, blank=True)
-    readers = models.ManyToManyField(
+    name = CharField(max_length=256, null=True, blank=True)
+    description = TextField(null=True, blank=True)
+    readers = ManyToManyField(
         Entity, blank=True, related_name='processes'
     )
 
@@ -159,7 +167,7 @@ class Process(models.Model):
         return name
 
 
-class Job(models.Model):
+class Job(Model):
     """ DAMATS Processing Job
     """
     CREATED = 'C'           # Created
@@ -178,25 +186,25 @@ class Job(models.Model):
         (FAILED, "FAILED"),
     )
 
-    identifier = models.CharField(
+    identifier = CharField(
         max_length=256, null=False, blank=False, unique=True
     )
-    name = models.CharField(max_length=256, null=True, blank=True)
-    description = models.TextField(null=True, blank=True)
-    owner = models.ForeignKey(User, related_name='jobs')
-    readers = models.ManyToManyField(Entity, related_name='jobs_ro')
-    created = models.DateTimeField(auto_now_add=True)
-    updated = models.DateTimeField(auto_now=True)
+    name = CharField(max_length=256, null=True, blank=True)
+    description = TextField(null=True, blank=True)
+    owner = ForeignKey(User, related_name='jobs')
+    readers = ManyToManyField(Entity, related_name='jobs_ro')
+    created = DateTimeField(auto_now_add=True)
+    updated = DateTimeField(auto_now=True)
     # process details
-    status = models.CharField(
+    status = CharField(
         max_length=1, choices=STATUS_CHOICES, default=CREATED
     )
-    time_series = models.ForeignKey(TimeSeries, related_name='jobs')
-    process = models.ForeignKey(Process, related_name='jobs')
-    inputs = models.TextField(null=True, blank=True) # processing inputs
-    outputs = models.TextField(null=True, blank=True) # processing outputs
-    wps_job_id = models.CharField(max_length=256, null=True, blank=True)
-    wps_response_url = models.CharField(max_length=512, null=True, blank=True)
+    time_series = ForeignKey(TimeSeries, related_name='jobs')
+    process = ForeignKey(Process, related_name='jobs')
+    inputs = TextField(null=True, blank=True) # processing inputs
+    outputs = TextField(null=True, blank=True) # processing outputs
+    wps_job_id = CharField(max_length=256, null=True, blank=True)
+    wps_response_url = CharField(max_length=512, null=True, blank=True)
 
     class Meta:
         verbose_name = "DAMATS Process Job"
@@ -209,18 +217,19 @@ class Job(models.Model):
         return name
 
 
-class Result(models.Model):
+class Result(Model):
     """ DAMATS Processing Result - base of the SourceSeries and TimeSeries.
     """
-    EOOBJ_CLASS = coverages.RectifiedDataset
-    eoobj = models.OneToOneField(
+    EOOBJ_CLASS = RectifiedDataset
+    eoobj = OneToOneField(
         EOOBJ_CLASS, related_name='damats_result',
         verbose_name='Related EO Object'
     )
-    name = models.CharField(max_length=256, null=False, blank=False)
-    description = models.TextField(null=True, blank=True)
-    job = models.ForeignKey(Job, related_name='results')
-    created = models.DateTimeField(auto_now_add=True)
+    identifier = CharField(max_length=256, null=False, blank=False)
+    name = CharField(max_length=256, null=True, blank=True)
+    description = TextField(null=True, blank=True)
+    job = ForeignKey(Job, related_name='results')
+    created = DateTimeField(auto_now_add=True)
 
     class Meta:
         verbose_name = "DAMATS Job Result"
@@ -229,5 +238,11 @@ class Result(models.Model):
     def __unicode__(self):
         name = self.eoobj.identifier
         if self.name:
-            name = "%s (%s)" % (self.name, name)
+            name = "%s (%s)" % (self.identifier, name)
         return name
+
+# Make sure EO object linked by the result gets removed upon Result removal ...
+@receiver(post_delete, sender=Result)
+def post_delete_result(sender, instance, *args, **kwargs):
+    if instance.eoobj: # just in case user is not specified
+        instance.eoobj.delete()

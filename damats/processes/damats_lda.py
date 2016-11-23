@@ -38,6 +38,7 @@ from eoxserver.services.ows.wps.parameters import (
 from damats.processes.sits_processor import SITSProcessor
 from damats.webapp.views_time_series import get_coverages, SELECTION_PARSER
 from damats.processes.utils import download_coverages
+from damats.util.results import register_result
 
 #TODO fix the path configuration
 sys.path.append("/srv/damats/algs")
@@ -94,7 +95,7 @@ class ProcessLDA(SITSProcessor):
         )),
     ]
 
-    def process_sits(self, sits, nclasses, nclusters, patch_size,
+    def process_sits(self, job, sits, nclasses, nclusters, patch_size,
                      scaling_factor, interp_method, context, **options):
         # parse selection
         selection = SELECTION_PARSER.parse(
@@ -134,6 +135,14 @@ class ProcessLDA(SITSProcessor):
             seterr(**numpy_error_settings)
 
         filename, url = context.publish(filename)
+
+        # create job result if possible
+        if job is not None:
+            register_result(
+                job, "indices", "Class indices", "%s_lda" % context.identifier,
+                filename, "Grayscale", visible=False
+                # begin_time, end_time
+            )
 
         return {
             "output_indices": Reference(
