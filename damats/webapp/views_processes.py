@@ -350,13 +350,25 @@ def job_serialize(obj, user, extras=None):
     else:
         wps_status, outputs = None, None
 
-    coverages = {}
-    for result in obj.results.all():
-        coverages[result.identifier] = dict((key, val) for key, val in [
-            ("name", result.name),
-            ("description", result.description),
-            ("coverage_id", result.eoobj.identifier),
-        ] if val is not None)
+    if outputs is not None:
+        coverages = {}
+        for result in obj.results.all():
+            coverages[result.identifier] = dict((key, val) for key, val in [
+                ("name", result.name),
+                ("description", result.description),
+                ("coverage_id", result.eoobj.identifier),
+            ] if val is not None)
+
+        # add available coverage ids to the outputs
+        for output in outputs:
+            try:
+                output['coverage_id'] = (
+                    coverages[output['identifier']]['coverage_id']
+                )
+            except KeyError:
+                pass
+    else:
+        coverages = None
 
     response.update({
         "identifier": obj.identifier,
