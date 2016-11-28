@@ -38,6 +38,17 @@ from damats.util.wcs_client import WCS20Client
 CHUNK_SIZE = 1024 * 1024 # 1MiB
 
 
+def invert_matrix_2x2(a00, a01, a10, a11):
+    """ Invert 2x2 matrix. """
+    det = a00*a11 - a01*a10
+    if det == 0:
+        raise ValueError(
+            "Zero matrix determinant! The matrix cannot be inverted!"
+        )
+    rdet = 1.0 / det
+    return rdet*a11, -rdet*a01, -rdet*a10, rdet*a00
+
+
 def update_object(obj, **kwargs):
     """ Update Django model instance"""
     for key, value in kwargs.iteritems():
