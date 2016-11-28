@@ -45,8 +45,18 @@ class ValueMaskLayerFactory(BaseCoverageLayerFactory):
 
     def generate(self, eo_object, group_layer, suffix, options):
         coverage = eo_object.cast()
+        extent = coverage.extent
+        sref = coverage.spatial_reference
         name = eo_object.identifier + "_value_mask"
+
         layer = Layer(name)
+        if sref.srid is not None:
+            short_epsg = "EPSG:%d" % sref.srid
+            layer.setMetaData("ows_srs", short_epsg)
+            layer.setMetaData("wms_srs", short_epsg)
+        layer.setProjection(sref.proj)
+        layer.setExtent(*extent)
+        layer.setMetaData("wms_extent", "%f %f %f %f" % extent)
         layer.setMetaData("ows_title", name)
         layer.setMetaData("wms_label", name)
         layer.addProcessing("CLOSE_CONNECTION=CLOSE")
