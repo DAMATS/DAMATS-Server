@@ -26,6 +26,7 @@
 # THE SOFTWARE.
 #-------------------------------------------------------------------------------
 # pylint: disable=missing-docstring
+import json
 from logging import getLogger
 from osgeo import gdal, osr
 from django.contrib.gis.geos import LinearRing, Polygon, MultiPolygon
@@ -55,8 +56,14 @@ def register_result(job, identifier, name, coverage_id, image_path,
     logger = logger or getLogger(__name__)
     #job = Job.objects.get(identifier=job_id)
     #job = Job.objects.get(wps_job_id=wps_job_id)
+    selection_toi = json.loads(job.time_series.selection)['toi']
+
     metadata = extract_image_info(image_path)
     metadata.update(kwargs)
+    metadata.update({
+        'begin_time': selection_toi['start'],
+        'end_time': selection_toi['end'],
+    })
 
     range_type = RangeType.objects.get(name=range_type_name)
     coverage = register_coverage(
@@ -157,11 +164,13 @@ def extract_extent_and_outline(dataset, npx=1, npy=1):
         for x, y in [(0, 0), (size_x, 0), (size_x, size_y), (0, size_y), (0, 0)]
     ]
     outline = []
+    npx, npy = max(npx, 1), max(npy, 1)
     npl = (npx, npy, npx, npy)
     for nstep, (x0, y0), (x1, y1) in (
             (npl[i], corners[i], corners[i+1]) for i in xrange(4)
         ):
-        dx, dy = (x1 - x0), (y1 - y0)
+        rstep = 1.0 / nstep
+        dx, dy = rstep*(x1 - x0), rstep*(y1 - y0)
         outline.append((x0, y0))
         for step in xrange(1, nstep):
             outline.append((x0 + dx*step, y0 + dy*step))
