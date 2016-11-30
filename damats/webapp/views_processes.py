@@ -148,7 +148,7 @@ def extend_processes(processes):
 def get_processes(user):
     """ Get query set of all Process objects accessible by the user. """
     id_list = [user.identifier] + [obj.identifier for obj in user.groups.all()]
-    return Process.objects.filter(readers__identifier__in=id_list)
+    return Process.objects.filter(readers__identifier__in=id_list).distinct()
 
 
 def get_jobs(user, owned=True, read_only=True):
@@ -161,10 +161,12 @@ def get_jobs(user, owned=True, read_only=True):
     qset = qset.prefetch_related('results', 'results__eoobj')
     if owned and read_only:
         qset = qset.filter(Q(owner=user) | Q(readers__identifier__in=id_list))
+        qset = qset.distinct()
     elif owned:
         qset = qset.filter(owner=user)
     elif read_only:
         qset = qset.filter(readers__identifier__in=id_list)
+        qset = qset.distinct()
     else: #nothing selected
         return []
     return qset
