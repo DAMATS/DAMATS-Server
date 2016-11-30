@@ -165,7 +165,7 @@ def get_process(user, process_id):
             [user.identifier] +
             list(user.groups.values_list('identifier', flat=True))
         ),
-    )
+    ).distinct()
 
 def get_job(user, process, job_id):
     """ Get DAMATS Job object for the given user, process and job identifier.
