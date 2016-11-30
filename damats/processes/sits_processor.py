@@ -160,12 +160,10 @@ def get_user(user_id):
 
 def get_process(user, process_id):
     """ Get DAMATS Process object for the given user and process identifier. """
-    return Process.objects.get(
-        identifier=process_id, readers__identifier__in=(
-            [user.identifier] +
-            list(user.groups.values_list('identifier', flat=True))
-        ),
-    ).distinct()
+    return Process.objects.filter(readers__identifier__in=(
+        [user.identifier] +
+        list(user.groups.values_list('identifier', flat=True))
+    )).distinct().get(identifier=process_id)
 
 def get_job(user, process, job_id):
     """ Get DAMATS Job object for the given user, process and job identifier.
