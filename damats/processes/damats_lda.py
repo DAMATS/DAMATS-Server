@@ -31,7 +31,9 @@
 
 import json
 import sys
+from collections import OrderedDict
 from numpy import seterr
+from django.conf import settings
 from eoxserver.services.ows.wps.parameters import (
     LiteralData, ComplexData, AllowedRange, Reference, FormatBinaryRaw,
 )
@@ -39,15 +41,20 @@ from damats.processes.sits_processor import SITSProcessor
 from damats.webapp.views_time_series import get_coverages, SELECTION_PARSER
 from damats.processes.utils import download_coverages
 from damats.util.results import register_result
+from damats.util.imports import import_object
+from damats.util.clc.rasterize import rasterize_shapes
+from damats.util.clc.statistics import write_class_statistics
 
 #TODO fix the path configuration
 sys.path.append("/srv/damats/algs")
 
 from lda.lda2 import lda_wrapper
 
-# TODO: fix the base WCS URL configuration
-WCS_URL = "http://127.0.0.1:80/eoxs/ows?"
 SITS_DIR = "sits" # path must be with respect to the current workspace
+LC_DATASETS = OrderedDict(
+    (item['title'], item) for item in settings.DAMATS_LAND_COVER_DATASETS
+)
+WCS_URL = settings.DAMATS_WCS_URL #"http://127.0.0.1:80/eoxs/ows?"
 
 
 class ProcessLDA(SITSProcessor):
@@ -85,6 +92,12 @@ class ProcessLDA(SITSProcessor):
             ), title="Interpolation Method",
             abstract="Interpolation method used by the image re-sampling."
         )),
+        ('lc_reference', LiteralData(
+            'land_cover_dataset', str, optional=False,
+            default=iter(LC_DATASETS).next(), allowed_values=tuple(LC_DATASETS),
+            title="Reference Land Cover",
+            abstract="Reference land cover vector dataset."
+        )),
     ]
 
     outputs = [
@@ -93,14 +106,29 @@ class ProcessLDA(SITSProcessor):
                 "An image containing indices of the calculated change classes."
             ), formats=(FormatBinaryRaw('image/tiff'))
         )),
+        ("output_land_cover", ComplexData(
+            'land_cover', title="Class Indices (Tiff Image)", abstract=(
+                "An image containing indices of the reference land cover "
+                "classes."
+            ), formats=(FormatBinaryRaw('image/tiff'))
+        )),
+        ("output_statistics", ComplexData(
+            'statistics', title="Class Statistic (TSV)", abstract=(
+                "Tab separated values table containing the pixel statistic "
+                " with respect to the reference land cover."
+            ), formats=(FormatBinaryRaw('text/tab-separated-values'))
+        )),
     ]
 
     def process_sits(self, job, sits, nclasses, nclusters, patch_size,
-                     scaling_factor, interp_method, context, **options):
+                     scaling_factor, interp_method, lc_reference,
+                     context, **options):
         # parse selection
         selection = SELECTION_PARSER.parse(
             json.loads(sits.selection or '{}')
         )
+        # parse land cover dataset
+        lc_dataset = LC_DATASETS[lc_reference]
 
         # get list of the contained coverages
         coverages = [
@@ -119,14 +147,15 @@ class ProcessLDA(SITSProcessor):
         # execute the algorithm
         context.update_progress(5, "Executing the algorithm.")
 
-        filename = "%s_lda.tif" % context.identifier
+        identifier_cls = "%s_LDA" % context.identifier
+        filename_cls = "%s.tif" % identifier_cls
 
         # detect various floating-point errors and always throw an exception
         numpy_error_settings = seterr(divide='raise', invalid='raise')
         try:
             lda_wrapper(
                 sits_content, nclusters, nclasses,
-                patch_size, filename=filename,
+                patch_size, filename=filename_cls,
                 cpu_nr=1, custom_logger=context.logger,
                 status_callback=context.update_progress,
             )
@@ -134,18 +163,53 @@ class ProcessLDA(SITSProcessor):
             # restore the original behaviour
             seterr(**numpy_error_settings)
 
-        filename, url = context.publish(filename)
+        context.update_progress(95, "Rasterizing the reference land cover.")
 
-        # create job result if possible
+        # rasterize the reference land cover
+        identifier_rlc = "%s_%s" % (context.identifier, lc_dataset['identifier'])
+        filename_rlc = "%s.tif" % identifier_rlc
+
+        classes = import_object(lc_dataset['classes']),
+        rasterize_shapes(
+            sits_content[0], filename_rlc, lc_dataset['path'],
+            lc_dataset['layer'], classes, lc_dataset['attrib']
+        )
+
+        context.update_progress(98, "Calculating statistics.")
+
+        # produce the final statistics
+        filename_stat = "%s_LDA_%s_statistics.tsv" % (
+            context.identifier, lc_dataset['identifier']
+        )
+        write_class_statistics(
+            filename_stat, filename_cls, filename_rlc, nclasses, classes,
+        )
+
+
+        # publish output
+        filename_cls, url_cls = context.publish(filename_cls)
+        filename_rlc, url_rlc = context.publish(filename_rlc)
+        filename_stat, url_stat = context.publish(filename_stat)
+
+        # create job results if possible
         if job is not None:
             register_result(
-                job, "indices", "Class indices", "%s_lda" % context.identifier,
-                filename, "Grayscale", visible=False
-                # begin_time, end_time
+                job, "indices", "Class indices", identifier_cls,
+                filename_cls, "classmap:uint8", visible=False,
+            )
+            register_result(
+                job, "indices", "Reference land cover", identifier_rlc,
+                filename_rlc, "classmap:uint8", visible=False,
             )
 
         return {
             "output_indices": Reference(
-                filename, url, **options["output_indices"]
+                filename_cls, url_cls, **options["output_indices"]
+            ),
+            "output_land_cover": Reference(
+                filename_rlc, url_rlc, **options["output_land_cover"]
+            ),
+            "output_statistics": Reference(
+                filename_stat, url_stat, **options["output_statistics"]
             ),
         }
