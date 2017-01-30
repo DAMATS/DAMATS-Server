@@ -169,7 +169,7 @@ class ProcessLDA(SITSProcessor):
         identifier_rlc = "%s_%s" % (context.identifier, lc_dataset['identifier'])
         filename_rlc = "%s.tif" % identifier_rlc
 
-        classes = import_object(lc_dataset['classes']),
+        classes = import_object(lc_dataset['classes'])
         rasterize_shapes(
             sits_content[0], filename_rlc, lc_dataset['path'],
             lc_dataset['layer'], classes, lc_dataset['attrib']
@@ -198,7 +198,7 @@ class ProcessLDA(SITSProcessor):
                 filename_cls, "classmap:uint8", visible=False,
             )
             register_result(
-                job, "indices", "Reference land cover", identifier_rlc,
+                job, "land_cover", "Reference land cover", identifier_rlc,
                 filename_rlc, "classmap:uint8", visible=False,
             )
 
