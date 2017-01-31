@@ -44,11 +44,7 @@ from damats.util.results import register_result
 from damats.util.imports import import_object
 from damats.util.clc.rasterize import rasterize_shapes
 from damats.util.clc.statistics import write_class_statistics
-
-#TODO fix the path configuration
-sys.path.append("/srv/damats/algs")
-
-from lda.lda2 import lda_wrapper
+from damats_algs.lda import lda_wrapper
 
 SITS_DIR = "sits" # path must be with respect to the current workspace
 LC_DATASETS = OrderedDict(
