@@ -54,7 +54,7 @@ WCS_URL = settings.DAMATS_WCS_URL #"http://127.0.0.1:80/eoxs/ows?"
 
 
 class ProcessLDA(SITSProcessor):
-    """ SITS analysis using Latent Dirichlet Allocation (LDA) """
+    """ SITS analysis using Latent Dirichlet Allocation (LDA) algorithm. """
     identifier = "DAMATS:LDA"
     title = "Latent Dirichlet Allocation (LDA)"
 
