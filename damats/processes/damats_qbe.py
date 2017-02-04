@@ -69,13 +69,13 @@ class ProcessQBE(SITSProcessor):
             title="Number of Classes",
         )),
         ("sample_latitude", LiteralData(
-            'sample_latitude', float, optional=True, default=1.0,
+            'sample_latitude', float, optional=False,
             allowed_values=AllowedRange(-90.0, +90.0, 'closed', dtype=float),
             title="Sample Latitude",
             abstract="Sample latitude in degrees."
         )),
         ("sample_longitude", LiteralData(
-            'sample_longitude', float, optional=True, default=1.0,
+            'sample_longitude', float, optional=False,
             allowed_values=AllowedRange(-180.0, +180.0, 'closed', dtype=float),
             title="Sample Longitude",
             abstract="Sample longitude in degrees."
@@ -151,7 +151,7 @@ class ProcessQBE(SITSProcessor):
             sample_row, sample_col = latlon2rowcol(
                 gdal.Open(sits_content[0]),
                 [(sample_latitude, sample_longitude)],
-            )
+            )[0]
         except OutOfExtent as exc:
             raise InvalidInputValueError(
                 "sample_latitude, sample_longitude", str(exc)
