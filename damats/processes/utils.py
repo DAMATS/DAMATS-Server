@@ -32,10 +32,49 @@ from os import makedirs
 from os.path import join
 from contextlib import closing
 from shutil import copyfileobj
+from math import floor
 from osgeo import gdal; gdal.UseExceptions() # pylint: disable=multiple-statements
+from osgeo import osr; osr.UseExceptions() # pylint: disable=multiple-statements
 from damats.util.wcs_client import WCS20Client
 
+SR_WGS84 = osr.SpatialReference()
+SR_WGS84.ImportFromEPSG(4326)
+
 CHUNK_SIZE = 1024 * 1024 # 1MiB
+
+
+class OutOfExtent(Exception):
+    """ Out of extent exception. """
+    pass
+
+
+def latlon2rowcol(dataset, coords, raise_exception=True):
+    """ Convert lat-lon coordinates to pixel row-col coordinates. """
+    # pylint: disable=invalid-name
+    size_u = dataset.RasterXSize
+    size_v = dataset.RasterYSize
+    x00, dxu, dxv, y00, dyu, dyv = dataset.GetGeoTransform()
+
+    # inverted CRS to pixel
+    dux, duy, dvx, dvy = invert_matrix_2x2(dxu, dxv, dyu, dyv)
+
+    # coordinate transformation from lat/lon to CRC of the image
+    ct_ = osr.CoordinateTransformation(
+        SR_WGS84, osr.SpatialReference(dataset.GetProjection()),
+    )
+
+    def _latlon2rowcol(lat, lon):
+        x, y = ct_.TransformPoint(lon, lat)[:2]
+        dx, dy = x - x00, y - y00
+        u, v = int(floor(dux*dx + duy*dy)), int(floor(dvx*dx + dvy*dy))
+
+        if raise_exception and (u < 0 or u >= size_u or v < 0 or v > size_v):
+            raise OutOfExtent(
+                "Coordinates %s are out of the image extent!" % ((lat, lon),)
+            )
+        return (v, u)
+
+    return [_latlon2rowcol(lat, lon) for lat, lon in coords]
 
 
 def invert_matrix_2x2(a00, a01, a10, a11):

@@ -27,10 +27,7 @@
 # THE SOFTWARE.
 #-------------------------------------------------------------------------------
 
-import json
-from math import floor
 from logging import getLogger
-from osgeo import osr, gdal
 from eoxserver.core import Component, implements
 from eoxserver.services.ows.wps.interfaces import ProcessInterface
 from eoxserver.services.ows.wps.parameters import (
@@ -38,39 +35,18 @@ from eoxserver.services.ows.wps.parameters import (
 )
 from eoxserver.services.ows.wps.exceptions import InvalidInputValueError
 from eoxserver.resources.coverages.models import RectifiedDataset
-from damats.processes.utils import invert_matrix_2x2
+from damats.processes.utils import gdal, latlon2rowcol, OutOfExtent
 
-SR_WGS84 = osr.SpatialReference()
-SR_WGS84.ImportFromEPSG(4326)
-
-
-class OutOfExtent(Exception):
-    """ Out of extent exception. """
-    pass
 
 def extract_pixel_value(image_path, latitude, longitude):
     """ Extract pixel value. """
     dataset = gdal.Open(image_path)
-    size_u = dataset.RasterXSize
-    size_v = dataset.RasterYSize
-    x00, dxu, dxv, y00, dyu, dyv = dataset.GetGeoTransform()
 
-    # coordinate conversion
-    ct_ = osr.CoordinateTransformation(
-        SR_WGS84, osr.SpatialReference(dataset.GetProjection()),
-    )
-
-    # calculate pixel coordinates
-    x, y = ct_.TransformPoint(longitude, latitude)[:2]
-    dx, dy = x - x00, y - y00
-    dux, duy, dvx, dvy = invert_matrix_2x2(dxu, dxv, dyu, dyv)
-    u, v = int(floor(dux*dx + duy*dy)), int(floor(dvx*dx + dvy*dy))
-
-    if u < 0 or u >= size_u or v < 0 or v > size_v:
-        raise OutOfExtent
+    # convert lat/lon to image row/col
+    row, col = latlon2rowcol(dataset, [(latitude, longitude)])[0]
 
     # extract pixel
-    pixel = dataset.ReadAsArray(u, v, 1, 1)[..., 0, 0]
+    pixel = dataset.ReadAsArray(col, row, 1, 1)[..., 0, 0]
 
     if len(pixel.shape) == 0:
         return [float(pixel)]
@@ -133,7 +109,7 @@ class GetPixelValue(Component):
         for data_item in coverage.data_items.all():
             if data_item.semantic.startswith("bands"):
                 #TODO: add data items' connectors
-                logger.info("%s: %s" % (data_item.semantic, data_item.location))
+                logger.debug("%s: %s", data_item.semantic, data_item.location)
                 try:
                     pixel_values.extend(extract_pixel_value(
                         data_item.location, latitude, longitude
