@@ -64,7 +64,7 @@ class ProcessDTW(SITSProcessor):
             allowed_values=AllowedRange(2, 64, dtype=int),
             title="Number of Classes",
         )),
-        ("iterations", LiteralData(
+        ("niterations", LiteralData(
             'niterations', int, optional=True, default=10,
             allowed_values=AllowedRange(5, 20, dtype=int),
             title="Number of Iterations",
@@ -111,6 +111,7 @@ class ProcessDTW(SITSProcessor):
         )),
     ]
 
+    #result = self.process_sits(sits=sits, user=user, job=job, **kwargs)
     def process_sits(self, job, sits, nclasses, niterations,
                      scaling_factor, interp_method, lc_reference,
                      context, **options):
