@@ -59,11 +59,11 @@ def register_result(job, identifier, name, coverage_id, image_path,
     selection_toi = json.loads(job.time_series.selection)['toi']
 
     metadata = extract_image_info(image_path)
-    metadata.update(kwargs)
     metadata.update({
         'begin_time': selection_toi['start'],
         'end_time': selection_toi['end'],
     })
+    metadata.update(kwargs)
 
     range_type = RangeType.objects.get(name=range_type_name)
     coverage = register_coverage(

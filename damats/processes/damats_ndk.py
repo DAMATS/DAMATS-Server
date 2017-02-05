@@ -1,6 +1,6 @@
 #-------------------------------------------------------------------------------
 #
-#  DTW algorithm WPS process wrapper
+#  NDK algorithm WPS process wrapper
 #
 # Project: DAMATS
 # Authors: Martin Paces <martin.paces@eox.at>
@@ -30,21 +30,18 @@
 # pylint: disable=too-many-arguments, too-many-locals
 
 import json
-import sys
 from collections import OrderedDict
 from numpy import seterr
 from django.conf import settings
 from eoxserver.services.ows.wps.parameters import (
-    LiteralData, ComplexData, AllowedRange, Reference, FormatBinaryRaw,
+    LiteralData, ComplexData, AllowedRange, Reference,
+    FormatBinaryRaw, FormatText,
 )
 from damats.processes.sits_processor import SITSProcessor
 from damats.webapp.views_time_series import get_coverages, SELECTION_PARSER
-from damats.processes.utils import download_coverages
+from damats.processes.utils import download_coverages, extless_basename
 from damats.util.results import register_result
-from damats.util.imports import import_object
-from damats.util.clc.rasterize import rasterize_shapes
-from damats.util.clc.statistics import write_class_statistics
-from damats_algs.dtw import dtw_wrapper
+from damats_algs.ndk import ndk_wrapper
 
 SITS_DIR = "sits" # path must be with respect to the current workspace
 LC_DATASETS = OrderedDict(
@@ -53,22 +50,12 @@ LC_DATASETS = OrderedDict(
 WCS_URL = settings.DAMATS_WCS_URL #"http://127.0.0.1:80/eoxs/ows?"
 
 
-class ProcessDTW(SITSProcessor):
-    """ SITS analysis using Dynamic Time Warping (DTW) algorithm. """
-    identifier = "DAMATS:DTW"
-    title = "Dynamic Time Warping (DTW)"
+class ProcessNDK(SITSProcessor):
+    """ SITS change detection using N-Dimensional K-means (NDK) algorithm. """
+    identifier = "DAMATS:NDK"
+    title = "N-Dimensional K-means (NDK)"
 
     inputs = SITSProcessor.inputs + [
-        ("nclasses", LiteralData(
-            'nclasses', int, optional=True, default=10,
-            allowed_values=AllowedRange(2, 64, dtype=int),
-            title="Number of Classes",
-        )),
-        ("niterations", LiteralData(
-            'niterations', int, optional=True, default=10,
-            allowed_values=AllowedRange(5, 20, dtype=int),
-            title="Number of Iterations",
-        )),
         ("scaling_factor", LiteralData(
             'scaling_factor', float, optional=True, default=1.0,
             allowed_values=AllowedRange(0.0, 1.0, 'open-closed', dtype=float),
@@ -83,43 +70,29 @@ class ProcessDTW(SITSProcessor):
             ), title="Interpolation Method",
             abstract="Interpolation method used by the image re-sampling."
         )),
-        ('lc_reference', LiteralData(
-            'land_cover_dataset', str, optional=False,
-            default=iter(LC_DATASETS).next(), allowed_values=tuple(LC_DATASETS),
-            title="Reference Land Cover",
-            abstract="Reference land cover vector dataset."
-        )),
     ]
 
     outputs = [
-        ("output_indices", ComplexData(
-            'indices', title="Class Indices (Tiff Image)", abstract=(
-                "An image containing indices of the calculated change classes."
+        ("output_cumulative_change", ComplexData(
+            'ndk_cumulative_change', title="Cumulative Change (Tiff Image)",
+            abstract=(
+                "NDK Cumulative change."
             ), formats=(FormatBinaryRaw('image/tiff'))
         )),
-        ("output_land_cover", ComplexData(
-            'land_cover', title="Class Indices (Tiff Image)", abstract=(
-                "An image containing indices of the reference land cover "
-                "classes."
-            ), formats=(FormatBinaryRaw('image/tiff'))
-        )),
-        ("output_statistics", ComplexData(
-            'statistics', title="Class Statistic (TSV)", abstract=(
-                "Tab separated values table containing the pixel statistic "
-                " with respect to the reference land cover."
-            ), formats=(FormatBinaryRaw('text/tab-separated-values'))
+        ("output_binary_changes", ComplexData(
+            'ndk_binary_changes', title="List of URLs",
+            abstract="Plain text URL list of the binary changes.",
+            formats=(FormatText('text/plain'))
         )),
     ]
 
-    def process_sits(self, job, sits, nclasses, niterations,
-                     scaling_factor, interp_method, lc_reference,
+    def process_sits(self, job, sits, scaling_factor, interp_method,
                      context, **options):
+
         # parse selection
         selection = SELECTION_PARSER.parse(
             json.loads(sits.selection or '{}')
         )
-        # parse land cover dataset
-        lc_dataset = LC_DATASETS[lc_reference]
 
         # get list of the contained coverages
         coverages = [
@@ -138,69 +111,57 @@ class ProcessDTW(SITSProcessor):
         # execute the algorithm
         context.update_progress(5, "Executing the algorithm.")
 
-        identifier_cls = "%s_DTW" % context.identifier
-        filename_cls = "%s.tif" % identifier_cls
-
         # detect various floating-point errors and always throw an exception
         numpy_error_settings = seterr(divide='raise', invalid='raise')
         try:
-            dtw_wrapper(
+            ndk_output = ndk_wrapper(
                 [(scene,) for scene in sits_content],
-                nclasses, niterations, filename=filename_cls,
-                cpu_nr=1, custom_logger=context.logger,
+                # write output to the current workspace
+                "", "%s_NDK_" % context.identifier,
                 status_callback=context.update_progress,
             )
         finally:
             # restore the original behaviour
             seterr(**numpy_error_settings)
 
-        context.update_progress(95, "Rasterizing the reference land cover.")
-
-        # rasterize the reference land cover
-        identifier_rlc = "%s_%s" % (context.identifier, lc_dataset['identifier'])
-        filename_rlc = "%s.tif" % identifier_rlc
-
-        classes = import_object(lc_dataset['classes'])
-        rasterize_shapes(
-            sits_content[0], filename_rlc, lc_dataset['path'],
-            lc_dataset['layer'], classes, lc_dataset['attrib']
+        # write the manifest of the binary change images
+        filename_ndk_bc = (
+            "%s_NDK_binary_changes_manifest.txt" % context.identifier
         )
+        with file(filename_ndk_bc, "wb") as fobj:
+            for idx, src_path in enumerate(ndk_output["ndk_binary_changes"]):
+                dst_path, url = context.publish(src_path)
+                fobj.write("%s\r\n" % url)
+                if job is not None:
+                    register_result(
+                        job, "ndk_binary_change[%d]" % idx,
+                        "Binary change #%d" % idx,
+                        extless_basename(dst_path, '.tif'),
+                        dst_path, "Grayscale", visible=False,
+                    )
 
-        context.update_progress(98, "Calculating statistics.")
+        # publish the manifest of the binary change images
+        filename_ndk_bc, url_ndk_bc = context.publish(filename_ndk_bc)
 
-        # produce the final statistics
-        filename_stat = "%s_DTW_%s_statistics.tsv" % (
-            context.identifier, lc_dataset['identifier']
+        # publish the cumulative change image
+        filename_ndk_cc, url_ndk_cc = context.publish(
+            ndk_output["ndk_cumulative_change"]
         )
-        write_class_statistics(
-            filename_stat, filename_cls, filename_rlc, nclasses, classes,
-        )
-
-
-        # publish output
-        filename_cls, url_cls = context.publish(filename_cls)
-        filename_rlc, url_rlc = context.publish(filename_rlc)
-        filename_stat, url_stat = context.publish(filename_stat)
 
         # create job results if possible
         if job is not None:
             register_result(
-                job, "indices", "Class indices", identifier_cls,
-                filename_cls, "classmap:uint8", visible=False,
-            )
-            register_result(
-                job, "land_cover", "Reference land cover", identifier_rlc,
-                filename_rlc, "classmap:uint8", visible=False,
+                job, "ndk_cumulative_change", "Cumulative change",
+                extless_basename(filename_ndk_cc, '.tif'),
+                filename_ndk_cc, "Grayscale", visible=False,
             )
 
         return {
-            "output_indices": Reference(
-                filename_cls, url_cls, **options["output_indices"]
+            "output_cumulative_change": Reference(
+                filename_ndk_cc, url_ndk_cc,
+                **options["output_cumulative_change"]
             ),
-            "output_land_cover": Reference(
-                filename_rlc, url_rlc, **options["output_land_cover"]
-            ),
-            "output_statistics": Reference(
-                filename_stat, url_stat, **options["output_statistics"]
+            "output_binary_changes": Reference(
+                filename_ndk_bc, url_ndk_bc, **options["output_binary_changes"]
             ),
         }

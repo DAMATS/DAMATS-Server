@@ -29,7 +29,7 @@
 # pylint: disable=too-many-arguments, too-many-locals
 
 from os import makedirs
-from os.path import join
+from os.path import join, basename
 from contextlib import closing
 from shutil import copyfileobj
 from math import floor
@@ -86,6 +86,14 @@ def invert_matrix_2x2(a00, a01, a10, a11):
         )
     rdet = 1.0 / det
     return rdet*a11, -rdet*a01, -rdet*a10, rdet*a00
+
+
+def extless_basename(path, ext=None):
+    """ File basename stripping optional extension. """
+    output = basename(path)
+    if ext and output.endswith(ext):
+        output = output[:(len(output) - len(ext))]
+    return output
 
 
 def update_object(obj, **kwargs):
