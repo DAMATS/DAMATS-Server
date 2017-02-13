@@ -103,7 +103,7 @@ class ProcessLDA(SITSProcessor):
             ), formats=(FormatBinaryRaw('image/tiff'))
         )),
         ("output_land_cover", ComplexData(
-            'land_cover', title="Class Indices (Tiff Image)", abstract=(
+            'land_cover', title="Reference Land Cover (Tiff Image)", abstract=(
                 "An image containing indices of the reference land cover "
                 "classes."
             ), formats=(FormatBinaryRaw('image/tiff'))
