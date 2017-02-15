@@ -134,7 +134,7 @@ class ProcessNDK(SITSProcessor):
                 fobj.write("%s\r\n" % url)
                 if job is not None:
                     register_result(
-                        job, "ndk_binary_change[%d]" % idx,
+                        job, "ndk_binary_changes[%d]" % idx,
                         "Binary change #%d" % idx,
                         extless_basename(dst_path, '.tif'),
                         dst_path, "Grayscale", visible=False,

@@ -28,6 +28,7 @@
 #-------------------------------------------------------------------------------
 # pylint: disable=missing-docstring,unused-argument
 
+import re
 import json
 import uuid
 from contextlib import closing
@@ -71,6 +72,8 @@ OWS11_TITLE = "{%s}Title" % OWS11_NS
 OWS11_ABSTRACT = "{%s}Abstract" % OWS11_NS
 OWS11_EXCEPTION = "{%s}Exception" % OWS11_NS
 OWS11_EXCEPTIONTEXT = "{%s}ExceptionText" % OWS11_NS
+
+RE_ARRAY_ITEM = re.compile(r"^(.*?)(?:\[(\d+)\])?$")
 
 #-------------------------------------------------------------------------------
 
@@ -344,6 +347,37 @@ def parse_wps_execute_response(wps_job_id):
     return status, outputs
 
 
+def _serialize_result(result):
+    """ Parse result identifier. """
+    id_, idx = RE_ARRAY_ITEM.match(result.identifier).groups()
+    payload = dict((key, val) for key, val in [
+        ("name", result.name),
+        ("description", result.description),
+        ("coverage_id", result.eoobj.identifier),
+    ] if val is not None)
+    return id_, None if idx is None else int(idx), payload
+
+
+def _group_results(results):
+    """ Group results by the result identifier. """
+    group_id, group = None, None
+    for id_, idx, payload in sorted(results):
+        if group_id != id_ or idx is None:
+            if group and group_id:
+                yield group_id, group
+                group_id, group = None, None
+
+
+            if idx is None:
+                yield id_, payload
+            else:
+                group_id, group = id_, [payload]
+        else: # group_id == id_ and idx not None
+            group.append(payload)
+    if group and group_id:
+        yield group_id, group
+
+
 def job_serialize(obj, user, extras=None):
     response = dict(extras) if extras else {}
 
@@ -353,20 +387,18 @@ def job_serialize(obj, user, extras=None):
         wps_status, outputs = None, None
 
     if outputs is not None:
-        coverages = {}
-        for result in obj.results.all():
-            coverages[result.identifier] = dict((key, val) for key, val in [
-                ("name", result.name),
-                ("description", result.description),
-                ("coverage_id", result.eoobj.identifier),
-            ] if val is not None)
+        coverages = dict(_group_results(
+            _serialize_result(result) for result in obj.results.all()
+        ))
 
         # add available coverage ids to the outputs
         for output in outputs:
             try:
-                output['coverage_id'] = (
-                    coverages[output['identifier']]['coverage_id']
-                )
+                item = coverages[output['identifier']]
+                if isinstance(item, list):
+                    output['coverage_ids'] = [v['coverage_id'] for v in item]
+                else:
+                    output['coverage_id'] = item['coverage_id']
             except KeyError:
                 pass
     else:
