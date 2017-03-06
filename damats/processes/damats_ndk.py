@@ -80,7 +80,7 @@ class ProcessNDK(SITSProcessor):
             ), formats=(FormatBinaryRaw('image/tiff'))
         )),
         ("output_binary_changes", ComplexData(
-            'ndk_binary_changes', title="List of URLs",
+            'ndk_binary_changes', title="Binary changes (URL list)",
             abstract="Plain text URL list of the binary changes.",
             formats=(FormatText('text/plain'))
         )),
