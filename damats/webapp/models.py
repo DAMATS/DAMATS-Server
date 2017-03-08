@@ -31,8 +31,9 @@
 # pylint: disable=no-init
 # pylint: disable=missing-docstring
 
-# TODO: Update model to allow names to be null or blank
 # NOTE: Human readable names are not used as natural keys and can be blank.
+# TODO: Update model to allow names to be null or blank.
+# TODO: Set correct ForeignKey on_delete behaviour.
 
 #from django.db import models
 from django.db.models import (
