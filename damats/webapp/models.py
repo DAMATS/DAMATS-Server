@@ -31,14 +31,9 @@
 # pylint: disable=no-init
 # pylint: disable=missing-docstring
 
-# NOTE: Human readable names are not used as natural keys and can be blank.
-# TODO: Update model to allow names to be null or blank.
-# TODO: Set correct ForeignKey on_delete behaviour.
-
-#from django.db import models
 from django.db.models import (
     Model, BooleanField, CharField, TextField, DateTimeField,
-    OneToOneField, ForeignKey, ManyToManyField,
+    OneToOneField, ForeignKey, ManyToManyField, CASCADE, PROTECT,
 )
 from django.db.models.signals import post_delete
 from django.dispatch import receiver
@@ -93,10 +88,10 @@ class SourceSeries(Model):
     """
     EOOBJ_CLASS = DatasetSeries
     eoobj = OneToOneField(
-        EOOBJ_CLASS, related_name='damats_sources',
-        verbose_name='Related Dataset Series'
+        EOOBJ_CLASS, on_delete=PROTECT, related_name='damats_sources',
+        verbose_name='Related Dataset Series',
     )
-    name = CharField(max_length=256, null=False, blank=False)
+    name = CharField(max_length=256, null=True, blank=True)
     description = TextField(null=True, blank=True)
     created = DateTimeField(auto_now_add=True)
     updated = DateTimeField(auto_now=True)
@@ -118,14 +113,14 @@ class TimeSeries(Model):
     """
     EOOBJ_CLASS = DatasetSeries
     eoobj = OneToOneField(
-        EOOBJ_CLASS, related_name='damats_time_series',
+        EOOBJ_CLASS, on_delete=PROTECT, related_name='damats_time_series',
         verbose_name='Related Dataset Series'
     )
-    name = CharField(max_length=256, null=False, blank=False)
+    name = CharField(max_length=256, null=True, blank=True)
     description = TextField(null=True, blank=True)
-    source = ForeignKey(SourceSeries, related_name='time_series')
+    source = ForeignKey(SourceSeries, related_name='time_series', on_delete=PROTECT)
     selection = TextField(null=True, blank=True)
-    owner = ForeignKey(User, related_name='time_series')
+    owner = ForeignKey(User, related_name='time_series', on_delete=PROTECT)
     editable = BooleanField(default=True)
 
     readers = ManyToManyField(
@@ -195,7 +190,7 @@ class Job(Model):
     )
     name = CharField(max_length=256, null=True, blank=True)
     description = TextField(null=True, blank=True)
-    owner = ForeignKey(User, related_name='jobs')
+    owner = ForeignKey(User, related_name='jobs', on_delete=PROTECT)
     readers = ManyToManyField(Entity, related_name='jobs_ro')
     created = DateTimeField(auto_now_add=True)
     updated = DateTimeField(auto_now=True)
@@ -203,8 +198,8 @@ class Job(Model):
     status = CharField(
         max_length=1, choices=STATUS_CHOICES, default=CREATED
     )
-    time_series = ForeignKey(TimeSeries, related_name='jobs')
-    process = ForeignKey(Process, related_name='jobs')
+    time_series = ForeignKey(TimeSeries, related_name='jobs', on_delete=PROTECT)
+    process = ForeignKey(Process, related_name='jobs', on_delete=PROTECT)
     inputs = TextField(null=True, blank=True) # processing inputs
     outputs = TextField(null=True, blank=True) # processing outputs
     wps_job_id = CharField(max_length=256, null=True, blank=True)
@@ -226,13 +221,13 @@ class Result(Model):
     """
     EOOBJ_CLASS = RectifiedDataset
     eoobj = OneToOneField(
-        EOOBJ_CLASS, related_name='damats_result',
+        EOOBJ_CLASS, on_delete=PROTECT, related_name='damats_result',
         verbose_name='Related EO Object'
     )
     identifier = CharField(max_length=256, null=False, blank=False)
     name = CharField(max_length=256, null=True, blank=True)
     description = TextField(null=True, blank=True)
-    job = ForeignKey(Job, related_name='results')
+    job = ForeignKey(Job, related_name='results', on_delete=CASCADE)
     created = DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -244,6 +239,7 @@ class Result(Model):
         if self.name:
             name = "%s (%s)" % (self.identifier, name)
         return name
+
 
 # Make sure EO object linked by the result gets removed upon Result removal ...
 @receiver(post_delete, sender=Result)
