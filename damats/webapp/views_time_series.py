@@ -35,7 +35,7 @@ from datetime import datetime
 #from django.conf import settings
 #from django.http import HttpResponse
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Q, ProtectedError
 from django.core.exceptions import ObjectDoesNotExist
 from django.contrib.gis.geos import Polygon, MultiPolygon, GeometryCollection
 
@@ -434,9 +434,15 @@ def time_series_item_view(method, input_, user, identifier, **kwargs):
             raise HttpError(405, "Method not allowed\nRead-only time-series!")
         # delete time-series
         eoobj = obj.eoobj
-        with transaction.atomic():
-            obj.delete()
-            eoobj.delete()
+        try:
+            with transaction.atomic():
+                obj.delete()
+                eoobj.delete()
+        except ProtectedError:
+            raise HttpError(
+                405, "Method not allowed\nTime series is already used by an "
+                "existing job!"
+            )
         return 204, None
 
     elif method == "PUT":
