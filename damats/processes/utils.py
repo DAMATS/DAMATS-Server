@@ -47,6 +47,10 @@ class OutOfExtent(Exception):
     """ Out of extent exception. """
     pass
 
+class EmptySITSError(Exception):
+    """ Error raised for an empty SITS. """
+    pass
+
 
 def latlon2rowcol(dataset, coords, raise_exception=True):
     """ Convert lat-lon coordinates to pixel row-col coordinates. """
@@ -174,6 +178,11 @@ def download_coverages(url, coverages, selection, output_dir, logger,
                 'output_srid': output_srid,
             })
             options.update(get_size_and_subset(filename))
+
+    if not images:
+        raise EmptySITSError(
+            "The SIST is empty and there is no image to be processed!"
+        )
 
     return images
 
