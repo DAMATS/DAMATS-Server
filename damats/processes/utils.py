@@ -181,7 +181,7 @@ def download_coverages(url, coverages, selection, output_dir, logger,
 
     if not images:
         raise EmptySITSError(
-            "The SIST is empty and there is no image to be processed!"
+            "The SITS is empty and there is no image to be processed!"
         )
 
     return images
